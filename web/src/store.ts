@@ -39,6 +39,8 @@ export interface ServerSessionState {
   recentPaneIds: string[];
   error: string | null;
   pendingFocusWorkspaceId: string | null;
+  pendingFocusWorkspaceSeq: number;
+  pendingFocusWorkspaceSettledAt: number | null;
   terminalAttachEpoch: number;
   lastRefresh: number;
 }
@@ -148,6 +150,8 @@ export function emptyServerSessionState(
     recentPaneIds: [],
     error: null,
     pendingFocusWorkspaceId: null,
+    pendingFocusWorkspaceSeq: 0,
+    pendingFocusWorkspaceSettledAt: null,
     terminalAttachEpoch: 0,
     lastRefresh: 0,
   };
@@ -325,6 +329,8 @@ const SERVER_SESSION_KEYS: Array<keyof ServerSessionState> = [
   "recentPaneIds",
   "error",
   "pendingFocusWorkspaceId",
+  "pendingFocusWorkspaceSeq",
+  "pendingFocusWorkspaceSettledAt",
   "terminalAttachEpoch",
   "lastRefresh",
 ];
@@ -340,6 +346,8 @@ function serverSessionFromState(snapshot: State): ServerSessionState {
     recentPaneIds: snapshot.recentPaneIds,
     error: snapshot.error,
     pendingFocusWorkspaceId: snapshot.pendingFocusWorkspaceId,
+    pendingFocusWorkspaceSeq: snapshot.pendingFocusWorkspaceSeq,
+    pendingFocusWorkspaceSettledAt: snapshot.pendingFocusWorkspaceSettledAt,
     terminalAttachEpoch: snapshot.terminalAttachEpoch,
     lastRefresh: snapshot.lastRefresh,
   };
@@ -372,6 +380,12 @@ export function activateConnectionState(
       : emptyServerSessionState(runtimeGeneration);
   const newSession = {
     ...restored,
+    // A restored pending focus outlived its action, so treat it as settled:
+    // the next fresh observation decides whether it still applies. Reuse the
+    // snapshot timestamp as a stable non-null token; wall-clock time is unused.
+    pendingFocusWorkspaceSettledAt: restored.pendingFocusWorkspaceId
+      ? (restored.pendingFocusWorkspaceSettledAt ?? restored.lastRefresh)
+      : restored.pendingFocusWorkspaceSettledAt,
     terminalAttachEpoch: restored.terminalAttachEpoch + 1,
   };
   return {
@@ -950,6 +964,7 @@ const REFRESH_SLICE_KEYS = ["workspaces", "tabs", "panes", "layout"] as const;
 const REFRESH_SCALAR_KEYS = [
   "error",
   "pendingFocusWorkspaceId",
+  "pendingFocusWorkspaceSettledAt",
   "selectedPaneId",
 ] as const;
 
@@ -993,6 +1008,45 @@ export function stabilizeRefreshPatch(
   return patch;
 }
 
+let nextPendingFocusWorkspaceSeq = 1;
+
+/**
+ * Marks a workspace focus as in flight and returns the sequence token that
+ * identifies this attempt. The pending flag suppresses focus-follower
+ * effects until a fresh refresh observes the workspace focused (or the focus
+ * is declared lost after the action settled).
+ */
+function stampPendingFocusWorkspace(workspaceId: string): number {
+  const seq = nextPendingFocusWorkspaceSeq++;
+  set({
+    pendingFocusWorkspaceId: workspaceId,
+    pendingFocusWorkspaceSeq: seq,
+    pendingFocusWorkspaceSettledAt: null,
+  });
+  return seq;
+}
+
+/** Clears an in-flight focus marker identified by its sequence token. */
+function clearPendingFocusWorkspace(seq: number): void {
+  if (state.pendingFocusWorkspaceSeq !== seq) return;
+  set({
+    pendingFocusWorkspaceId: null,
+    pendingFocusWorkspaceSettledAt: null,
+  });
+}
+
+/** Records that the action behind an in-flight focus has completed. */
+function settlePendingFocusWorkspace(seq: number): void {
+  if (
+    !state.pendingFocusWorkspaceId ||
+    state.pendingFocusWorkspaceSeq !== seq ||
+    state.pendingFocusWorkspaceSettledAt !== null
+  ) {
+    return;
+  }
+  set({ pendingFocusWorkspaceSettledAt: Date.now() });
+}
+
 async function refreshNow(lease = captureConnectionLease()) {
   if (
     state.connectionPaused ||
@@ -1007,6 +1061,13 @@ async function refreshNow(lease = captureConnectionLease()) {
     return;
   }
   refreshingConnectionKeys.add(refreshKey);
+  // Snapshot the pending-focus marker when the fetch actually starts. Only a
+  // refresh that began after the focus action settled may declare the focus
+  // lost, and only while the marker still belongs to that same attempt.
+  const pendingFocusAtEntry = {
+    seq: state.pendingFocusWorkspaceSeq,
+    settledAt: state.pendingFocusWorkspaceSettledAt,
+  };
   try {
     const [wsRes, tabRes, paneRes] = await Promise.all([
       lease.client.call("workspace.list"),
@@ -1031,6 +1092,10 @@ async function refreshNow(lease = captureConnectionLease()) {
       error: null,
       lastRefresh: Date.now(),
     };
+    const pendingFocusAtObservation = {
+      seq: state.pendingFocusWorkspaceSeq,
+      settledAt: state.pendingFocusWorkspaceSettledAt,
+    };
     if (
       state.pendingFocusWorkspaceId &&
       workspaces.some(
@@ -1038,6 +1103,18 @@ async function refreshNow(lease = captureConnectionLease()) {
       )
     ) {
       next.pendingFocusWorkspaceId = null;
+      next.pendingFocusWorkspaceSettledAt = null;
+    } else if (
+      state.pendingFocusWorkspaceId &&
+      state.pendingFocusWorkspaceSeq === pendingFocusAtEntry.seq &&
+      pendingFocusAtEntry.settledAt !== null &&
+      state.pendingFocusWorkspaceSettledAt === pendingFocusAtEntry.settledAt
+    ) {
+      // The focus action settled before this refresh started, yet a fresh
+      // observation still does not show the workspace focused: the focus was
+      // pre-empted or the workspace vanished, so release follower effects.
+      next.pendingFocusWorkspaceId = null;
+      next.pendingFocusWorkspaceSettledAt = null;
     }
 
     // Keep selection valid globally. Layout-scoped validation runs after the
@@ -1078,6 +1155,17 @@ async function refreshNow(lease = captureConnectionLease()) {
       next.layout = null;
     }
 
+    // Layout fetching can overlap another focus attempt or its settlement.
+    // Drop only a stale marker clear, preserving the useful snapshot data.
+    if (
+      next.pendingFocusWorkspaceId === null &&
+      (state.pendingFocusWorkspaceSeq !== pendingFocusAtObservation.seq ||
+        state.pendingFocusWorkspaceSettledAt !==
+          pendingFocusAtObservation.settledAt)
+    ) {
+      delete next.pendingFocusWorkspaceId;
+      delete next.pendingFocusWorkspaceSettledAt;
+    }
     const patch = stabilizeRefreshPatch(state, next);
     if (patch) {
       if (!setForConnection(lease, patch)) return;
@@ -1514,12 +1602,17 @@ async function action<T>(
   fn: (lease: StoreConnectionLease) => Promise<T>,
   options: {
     refresh?: "scheduled" | "immediate" | "none";
-    pendingFocusWorkspaceId?: string;
+    pendingFocusWorkspaceSeq?: number;
     failureNotice?: (error: Error) => Notice;
     retryOnReconnect?: boolean;
   } = {},
 ): Promise<T | undefined> {
   if (state.connectionPaused) {
+    // The caller may have already stamped a focus marker; the attempt never
+    // starts here, so release it instead of stranding it unsettled.
+    if (options.pendingFocusWorkspaceSeq !== undefined) {
+      clearPendingFocusWorkspace(options.pendingFocusWorkspaceSeq);
+    }
     set({
       notice: {
         kind: "info",
@@ -1553,18 +1646,25 @@ async function action<T>(
     outcome = await attempt(activeLease);
   }
   if (!outcome.ok) {
+    // Releasing the focus marker must not depend on the lease surviving: the
+    // attempt is over, and a dead lease (pause, disconnect, connection
+    // switch) would otherwise strand the marker in a cached session whose
+    // steady-state restore never marks it settled.
+    if (options.pendingFocusWorkspaceSeq !== undefined) {
+      clearPendingFocusWorkspace(options.pendingFocusWorkspaceSeq);
+    }
     if (!leaseIsCurrent(activeLease)) return undefined;
     const error = outcome.error;
     setForConnection(activeLease, {
       error: error.message,
       notice: options.failureNotice?.(error) ?? state.notice,
-      pendingFocusWorkspaceId:
-        options.pendingFocusWorkspaceId &&
-        state.pendingFocusWorkspaceId === options.pendingFocusWorkspaceId
-          ? null
-          : state.pendingFocusWorkspaceId,
     });
     return undefined;
+  }
+  // The action completed, so the attempt is settled even when the lease died
+  // before the client observed it; the next fresh observation decides.
+  if (options.pendingFocusWorkspaceSeq !== undefined) {
+    settlePendingFocusWorkspace(options.pendingFocusWorkspaceSeq);
   }
   if (!leaseIsCurrent(activeLease)) return undefined;
   if (options.refresh === "immediate") {
@@ -1919,7 +2019,9 @@ export const store = {
     const targetPane =
       state.panes.find((pane) => pane.tab_id === tabId && pane.focused) ??
       state.panes.find((pane) => pane.tab_id === tabId);
-    if (workspaceId) set({ pendingFocusWorkspaceId: workspaceId });
+    const pendingFocusSeq = workspaceId
+      ? stampPendingFocusWorkspace(workspaceId)
+      : undefined;
     return action(
       (lease) =>
         enqueueFocusAction(async () => {
@@ -1950,7 +2052,7 @@ export const store = {
         }),
       {
         refresh: "immediate",
-        pendingFocusWorkspaceId: workspaceId,
+        pendingFocusWorkspaceSeq: pendingFocusSeq,
         retryOnReconnect: true,
       },
     );
@@ -1997,7 +2099,7 @@ export const store = {
   },
 
   focusWorkspace(workspaceId: string) {
-    set({ pendingFocusWorkspaceId: workspaceId });
+    const pendingFocusSeq = stampPendingFocusWorkspace(workspaceId);
     return action(
       (lease) =>
         enqueueFocusAction(() =>
@@ -2005,7 +2107,7 @@ export const store = {
         ),
       {
         refresh: "immediate",
-        pendingFocusWorkspaceId: workspaceId,
+        pendingFocusWorkspaceSeq: pendingFocusSeq,
         retryOnReconnect: true,
       },
     );
@@ -2027,7 +2129,7 @@ export const store = {
     ) {
       return Promise.resolve(undefined);
     }
-    set({ pendingFocusWorkspaceId: target.workspaceId });
+    const pendingFocusSeq = stampPendingFocusWorkspace(target.workspaceId);
     return action(
       (lease) =>
         enqueueFocusAction(async () => {
@@ -2058,7 +2160,7 @@ export const store = {
         }),
       {
         refresh: "immediate",
-        pendingFocusWorkspaceId: target.workspaceId,
+        pendingFocusWorkspaceSeq: pendingFocusSeq,
       },
     );
   },
@@ -2688,7 +2790,9 @@ export const store = {
 
   focusPane(paneId: string) {
     const pane = state.panes.find((p) => p.pane_id === paneId);
-    if (pane?.workspace_id) set({ pendingFocusWorkspaceId: pane.workspace_id });
+    const pendingFocusSeq = pane?.workspace_id
+      ? stampPendingFocusWorkspace(pane.workspace_id)
+      : undefined;
     return action(
       (lease) =>
         enqueueFocusAction(async () => {
@@ -2702,7 +2806,7 @@ export const store = {
           setForConnection(lease, { selectedPaneId: paneId });
           return pane;
         }),
-      { refresh: "immediate", pendingFocusWorkspaceId: pane?.workspace_id },
+      { refresh: "immediate", pendingFocusWorkspaceSeq: pendingFocusSeq },
     );
   },
 
