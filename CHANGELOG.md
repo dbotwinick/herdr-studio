@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+### Changed
+
+- Route terminal streams on Herdr 0.9.0 through the stable endpoint
+  generation 1 protocol instead of the private direct-attach protocol: the
+  browser terminal now renders the pane cropped from the server-rendered tab
+  surface, input is classified into semantic key events, and scrollback goes
+  through `pane.scroll`. Set `HERDR_GUI_DISABLE_ENDPOINT=1` to fall back to
+  the legacy path. Known gaps on the endpoint path: mouse input is not yet
+  classified, and panes sharing a tab render at their layout size.
+
+### Fixed
+
+- Clear stale terminal text on endpoint repaints, wait for the initial snapshot
+  before attaching, and reject pending endpoint requests when disconnected.
+
 ## 0.5.3 - 2026-09-08
 
 ### Changed
