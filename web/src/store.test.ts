@@ -1456,3 +1456,110 @@ describe("pending workspace focus settlement", () => {
     }
   });
 });
+
+describe("basic Herdr 0.9 compatibility", () => {
+  test("safe workspace close reports grouped-close refusal without closing the group", async () => {
+    const previousState = store.get();
+    const originalConnection = bridge.connection;
+    const calls: unknown[] = [];
+    bridge.connection = (() => ({
+      connectionId: "alpha",
+      generation: 10,
+      isCurrent: () => true,
+      call: (async (method, params) => {
+        calls.push({ method, params });
+        throw new Error(
+          "workspace_group_close_required: workspace has linked worktrees",
+        );
+      }) as ConnectionClient["call"],
+    })) as typeof bridge.connection;
+    try {
+      __storeTesting.replaceState(partitionState());
+      await store.closeWorkspace("workspace_1");
+      expect(calls).toEqual([
+        { method: "workspace.close", params: { workspace_id: "workspace_1" } },
+      ]);
+      expect(store.get().notice).toMatchObject({
+        kind: "error",
+        message: "Workspace belongs to a group",
+        detail: expect.stringContaining("Herdr CLI with --group"),
+      });
+      expect(store.get().workspaces).toEqual(partitionState().workspaces);
+    } finally {
+      bridge.connection = originalConnection;
+      __storeTesting.replaceState(previousState);
+    }
+  });
+
+  for (const event of ["layout_updated", "session.resync_required"]) {
+    test(`${event} uses generic refresh and queues reconciliation during an in-flight snapshot`, async () => {
+      const previousState = store.get();
+      const originalConnection = bridge.connection;
+      const snapshot = partitionState();
+      const refreshedWorkspaces = snapshot.workspaces.map((workspace) => ({
+        ...workspace,
+        label: "after-layout-event",
+      }));
+      let lists = 0;
+      let published!: () => void;
+      let publicationTimer!: ReturnType<typeof setTimeout>;
+      const publication = new Promise<void>((resolve, reject) => {
+        published = resolve;
+        publicationTimer = setTimeout(
+          () => reject(new Error("follow-up snapshot was not published")),
+          2_000,
+        );
+      });
+      const unsubscribe = store.subscribe(() => {
+        if (store.get().workspaces[0]?.label === "after-layout-event") {
+          published();
+        }
+      });
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      bridge.connection = (() => ({
+        connectionId: "alpha",
+        generation: 10,
+        isCurrent: () => true,
+        call: (async (method) => {
+          if (method === "workspace.list") {
+            lists += 1;
+            if (lists === 1) await gate;
+            return {
+              workspaces:
+                lists === 1 ? snapshot.workspaces : refreshedWorkspaces,
+            };
+          }
+          if (method === "tab.list") return { tabs: snapshot.tabs };
+          if (method === "pane.list") return { panes: snapshot.panes };
+          if (method === "pane.layout") return { layout: null };
+          return {};
+        }) as ConnectionClient["call"],
+      })) as typeof bridge.connection;
+      try {
+        __storeTesting.replaceState(snapshot);
+        const refreshing = store.refresh();
+        __storeTesting.handleHerdrEvent({
+          event,
+          connection_id: "alpha",
+          connection_generation: 1,
+          data: {},
+        });
+        await Bun.sleep(100); // The production 80ms event debounce fires while busy.
+        expect(lists).toBe(1);
+        release();
+        await refreshing;
+        await publication;
+        expect(lists).toBe(2); // No five-second metadata poll needed.
+      } finally {
+        clearTimeout(publicationTimer);
+        unsubscribe();
+        release();
+        bridge.connection = originalConnection;
+        __storeTesting.replaceState(previousState);
+      }
+    });
+  }
+});
