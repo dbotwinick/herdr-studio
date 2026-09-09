@@ -52,7 +52,23 @@ describe("frameToAnsi", () => {
     const out = frameToAnsi(
       frame([cell("你"), cell("", { skip: true }), cell("x")], 3, 1),
     );
-    expect(out).toContain("你x");
+    expect(out).toContain("你\x1b[3Gx");
+  });
+
+  test.each(["中", "🙂", "👩‍💻", "🇨🇳", "ｶﾞ"])(
+    "skips unmarked padding after %s without removing a real space",
+    (symbol) => {
+      const out = frameToAnsi(
+        frame([cell(symbol), cell(" "), cell(" "), cell("x")], 4, 1),
+      );
+      expect(out).toContain(`${symbol}\x1b[3G x`);
+      expect(out).not.toContain(`${symbol}  x`);
+    },
+  );
+
+  test("does not skip the cell after a narrow combining grapheme", () => {
+    const out = frameToAnsi(frame([cell("e\u0301"), cell("x")], 2, 1));
+    expect(out).toContain("e\u0301x");
   });
 
   test("trims trailing default blanks but keeps styled blanks", () => {
