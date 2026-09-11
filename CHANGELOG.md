@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Restore Page Up/Down in terminal applications such as nano and add configurable
+  terminal copy shortcuts while preserving Ctrl+C as terminal input.
+
 - Add platform-aware keyboard presets and a searchable shortcut editor under
   Behavior & automation, with custom bindings and preset import/export.
 
