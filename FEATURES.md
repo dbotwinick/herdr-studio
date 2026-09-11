@@ -127,6 +127,8 @@ panel.
   drag-to-reorder. Group by status, workspace, or agent type and collapse groups.
   Sorting and grouping are remembered in the browser; manual ordering is saved
   per connection.
+- Agent rows show the tab name before the pane ID in both nested and separate
+  views. Blank labels and numbered defaults such as `2` or `Tab 2` are omitted.
 - Inspect turn count, token usage, update time, session ID, session file, and
   other session details.
 - Open Session Inspector in Timeline, ATIF, or raw transcript mode, with search
