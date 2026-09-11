@@ -14,6 +14,8 @@
   top by default on mobile.
 - Add a Mobile Layout dialog under Appearance with a configurable breakpoint and
   saved or URL-forced display modes for foldable phones and other compact screens.
+- Keep terminal cursors updating across incremental endpoint repaints and split-pane
+  activity, including cursor hide/show transitions.
 
 ## 0.6.2 - 2026-09-11
 

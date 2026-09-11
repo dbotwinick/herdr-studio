@@ -162,6 +162,9 @@ async function startSessionServer(handlers: {
   onPaneInput?: (paneId: string, reader: BinReader) => void;
   panes?: TestPane[];
   onConnection?: (sendSurface: (panes: TestPane[]) => void) => void;
+  onPatchConnection?: (
+    send: (cursor: FrameData["cursor"], panes: TestPane[]) => void,
+  ) => void;
   onClipboardConnection?: (send: (data: string) => void) => void;
   onDisconnectConnection?: (disconnect: () => void) => void;
   initialSurface?: { frame: FrameData; panes: TestPane[] };
@@ -208,6 +211,33 @@ async function startSessionServer(handlers: {
     handlers.onConnection?.((panes) =>
       socket.write(encodeFrame(surfaceFrame(++revision, frame, panes))),
     );
+    handlers.onPatchConnection?.((cursor, panes) => {
+      const w = new BinWriter();
+      w.variant(19); // PaneSurfacePatch
+      w.string("boot-1");
+      w.varint(1); // projection_revision
+      w.varint(revision);
+      w.varint(++revision);
+      w.varint(0); // cursor/metadata-only patch: no changed rows
+      w.varint(panes.length);
+      for (const pane of panes)
+        writePane(
+          w,
+          pane.paneId,
+          pane.x,
+          0,
+          pane.mouseReporting,
+          pane.rect,
+          pane.innerRect,
+        );
+      w.option(cursor, (cur) => {
+        w.varint(cur.x);
+        w.varint(cur.y);
+        w.bool(cur.visible);
+        w.u8(cur.shape);
+      });
+      socket.write(encodeFrame(w.toBuffer()));
+    });
     socket.on("data", (chunk) => {
       input = Buffer.concat([
         input,
@@ -310,6 +340,68 @@ async function startSessionServer(handlers: {
   });
   return socketPath;
 }
+
+test.each(["cursor only", "other split pane"])(
+  "restores a hidden cursor when a patch updates %s",
+  async (update) => {
+    const initial: FrameData = {
+      cells: Array.from({ length: 100 }, () => cell(" ")),
+      width: 20,
+      height: 5,
+      cursor: null,
+      hyperlinks: [],
+    };
+    const panes = [
+      { paneId: "w1:p1", x: 0, mouseReporting: false },
+      { paneId: "w1:p2", x: 10, mouseReporting: true },
+    ];
+    let sendPatch!: (cursor: FrameData["cursor"], panes: TestPane[]) => void;
+    const socketPath = await startSessionServer({
+      initialSurface: { frame: initial, panes },
+      onPatchConnection: (send) => {
+        sendPatch = send;
+      },
+    });
+    const session = new EndpointTerminalSession(
+      socketPath,
+      "terminal",
+      async () => "w1:p1",
+    );
+    const frames: Array<{
+      frame: FrameData;
+      bytes: Buffer;
+      mouseReporting: boolean;
+    }> = [];
+    session.on("terminal", (frame) => frames.push(frame));
+    try {
+      await session.connect(8, 3, { cols: 20, rows: 5 });
+      expect(frames.at(-1)?.bytes.toString()).toEndWith("\x1b[?25l");
+      const changedPanes = update === "cursor only" ? [] : [panes[1]];
+      const visible = { x: 2, y: 2, visible: true, shape: 5 };
+      for (const cursor of [
+        visible,
+        null,
+        { ...visible, visible: false },
+        { ...visible, x: 3 },
+      ]) {
+        const count = frames.length;
+        sendPatch(cursor, changedPanes);
+        await Bun.sleep(50);
+        expect(frames).toHaveLength(count + 1);
+        const result = frames.at(-1)!;
+        expect(result.frame.cursor).toEqual(
+          cursor ? { ...cursor, x: cursor.x - 1, y: cursor.y - 1 } : null,
+        );
+        expect(result.mouseReporting).toBe(false);
+        expect(result.bytes.toString()).toEndWith(
+          cursor?.visible ? "\x1b[5 q\x1b[?25h" : "\x1b[?25l",
+        );
+      }
+    } finally {
+      session.close();
+    }
+  },
+);
 
 function splitSurface(cols: number, rows: number, count = 2) {
   const frame: FrameData = {

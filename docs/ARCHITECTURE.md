@@ -39,6 +39,11 @@ capabilities. Attachment waits for the initial snapshot. Each terminal crops its
 pane from the server-rendered tab surface and sends semantic input to that pane;
 panes retain their shared layout dimensions.
 
+Incremental surface patches update only the named panes; other pane metadata
+remains available for cropping and cursor delivery. Each patch replaces the
+complete cursor state, including `null` to clear it. Pane topology changes
+require a full surface; patches naming unknown panes are discarded.
+
 `terminal.attach` carries pane content dimensions in `cols`/`rows`. When layout
 is available, the browser also supplies `surface_cols`/`surface_rows` for the
 complete tab, including pane borders but excluding app sidebar/tab-bar insets.

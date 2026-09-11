@@ -495,10 +495,20 @@ export class EndpointClient extends EventEmitter {
       // ponytail: no resend request; the server repaints on focus/resize.
       return;
     }
+    // Patches carry only changed pane metadata, not the complete pane list.
+    // Keep the other panes so cursor-only updates still reach their sessions.
+    const nextPanes = current.panes.slice();
+    for (const pane of panes) {
+      const index = nextPanes.findIndex((p) => p.paneId === pane.paneId);
+      // Topology changes require a full surface; do not apply a partial one.
+      if (index < 0) return;
+      nextPanes[index] = pane;
+    }
     const { frame } = current;
     // Copy before patching: consumers may retain earlier emitted frames.
     const cells = frame.cells.slice();
-    const nextFrame: FrameData = { ...frame, cells };
+    // The cursor is the final state, including null when it is cleared.
+    const nextFrame: FrameData = { ...frame, cells, cursor };
     for (const { x, y, cells: rowCells } of rows) {
       if (y >= frame.height) continue;
       const offset = y * frame.width + x;
@@ -506,8 +516,7 @@ export class EndpointClient extends EventEmitter {
         cells[offset + j] = rowCells[j];
       }
     }
-    if (cursor) nextFrame.cursor = cursor;
-    this.surface = { frame: nextFrame, surfaceRevision, panes };
+    this.surface = { frame: nextFrame, surfaceRevision, panes: nextPanes };
     this.emit("surface", this.surface);
   }
 }
