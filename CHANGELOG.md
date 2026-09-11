@@ -2,8 +2,8 @@
 
 ## Unreleased
 
-- Keep terminal cursors updating across incremental endpoint repaints and split-pane
-  activity, including cursor hide/show transitions.
+- Keep the cursor on the selected terminal pane when switching splits, and preserve
+  cursor updates and hide/show transitions across incremental repaints.
 
 ## 0.6.2 - 2026-09-11
 
