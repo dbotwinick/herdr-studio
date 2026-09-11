@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Open relative Markdown document links in the current preview, including heading
+  anchors, without opening another Studio window.
+
 ## 0.6.2 - 2026-09-11
 
 - Reload open tabs once when an update removes their cached code chunks, instead

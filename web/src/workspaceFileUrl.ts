@@ -30,11 +30,11 @@ export function workspaceFileUrl(
 }
 
 /**
- * Resolve a Markdown image reference against its workspace-relative document.
+ * Resolve a Markdown resource reference against its workspace-relative document.
  * Undefined means the source is not workspace-local; null means it attempted to
  * address a local path but could not be resolved inside the workspace root.
  */
-export function resolveWorkspaceMarkdownImagePath(
+export function resolveWorkspaceMarkdownPath(
   source: string,
   markdownPath: string,
 ): string | null | undefined {
@@ -76,11 +76,33 @@ export function resolveWorkspaceMarkdownImageUrl(
   workspaceId: string,
   revision?: number,
 ) {
-  const path = resolveWorkspaceMarkdownImagePath(source, markdownPath);
+  const path = resolveWorkspaceMarkdownPath(source, markdownPath);
   if (path === undefined) return source;
   if (path === null) return null;
   return workspaceFileUrl(client, workspaceId, path, {
     inline: true,
     revision,
   });
+}
+
+// Kept for callers resolving image references.
+export const resolveWorkspaceMarkdownImagePath = resolveWorkspaceMarkdownPath;
+
+export function resolveWorkspaceMarkdownLink(
+  source: string,
+  markdownPath: string,
+): { path: string; fragment: string } | null | undefined {
+  const trimmed = source.trim();
+  const path = trimmed.startsWith("#")
+    ? markdownPath
+    : resolveWorkspaceMarkdownPath(trimmed, markdownPath);
+  if (path === null || path === undefined) return path;
+  const hashIndex = trimmed.indexOf("#");
+  let fragment = hashIndex < 0 ? "" : trimmed.slice(hashIndex + 1);
+  try {
+    fragment = decodeURIComponent(fragment);
+  } catch {
+    /* Keep malformed fragments literal. */
+  }
+  return { path, fragment };
 }

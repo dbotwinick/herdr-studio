@@ -63,3 +63,53 @@ describe("workspace file URLs", () => {
     );
   });
 });
+
+import { resolveWorkspaceMarkdownLink } from "./workspaceFileUrl";
+
+describe("Markdown document links", () => {
+  test("resolves siblings, parent directories, and workspace-root links", () => {
+    expect(
+      resolveWorkspaceMarkdownLink("./setup.md", "docs/guide/README.md"),
+    ).toEqual({ path: "docs/guide/setup.md", fragment: "" });
+    expect(
+      resolveWorkspaceMarkdownLink(
+        "../API%20guide.md?view=1#api%20reference",
+        "docs/guide/README.md",
+      ),
+    ).toEqual({ path: "docs/API guide.md", fragment: "api reference" });
+    expect(
+      resolveWorkspaceMarkdownLink("/README.md#intro", "docs/guide.md"),
+    ).toEqual({ path: "README.md", fragment: "intro" });
+    expect(resolveWorkspaceMarkdownLink("#install", "docs/guide.md")).toEqual({
+      path: "docs/guide.md",
+      fragment: "install",
+    });
+    expect(
+      resolveWorkspaceMarkdownLink("..\\README.md", "docs/guide.md"),
+    ).toEqual({ path: "README.md", fragment: "" });
+  });
+
+  test("leaves external URLs alone and rejects invalid workspace paths", () => {
+    for (const source of [
+      "https://example.com/guide.md",
+      "mailto:help@example.com",
+      "//example.com/guide.md",
+      "javascript:alert(1)",
+    ]) {
+      expect(
+        resolveWorkspaceMarkdownLink(source, "docs/README.md"),
+      ).toBeUndefined();
+    }
+    for (const source of [
+      "../../private.md",
+      "%2e%2e/%2e%2e/private.md",
+      "bad%00.md",
+      "bad%ZZ.md",
+    ]) {
+      expect(resolveWorkspaceMarkdownLink(source, "docs/README.md")).toBeNull();
+    }
+    expect(
+      resolveWorkspaceMarkdownLink("guide.md#bad%ZZ", "docs/README.md"),
+    ).toEqual({ path: "docs/guide.md", fragment: "bad%ZZ" });
+  });
+});

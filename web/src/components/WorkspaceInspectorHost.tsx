@@ -213,6 +213,7 @@ export function WorkspaceInspectorHost({
   onFileSelectionChange,
   onDiffSelectionChange,
   onOpenDiffFile,
+  onOpenDocument,
   onViewChange,
   onDockChange,
   onExpandedChange,
@@ -231,6 +232,7 @@ export function WorkspaceInspectorHost({
     typeof FileExplorerPanel
   >[0]["onPreviewChange"];
   onDiffSelectionChange: DiffViewerPanelProps["onSelectionChange"];
+  onOpenDocument: (path: string) => void;
   onOpenDiffFile: (entry: ActiveDiffSelection["entry"]) => void;
   onViewChange: (view: InspectorView) => void;
   onDockChange: (dock: InspectorDock) => void;
@@ -765,6 +767,7 @@ export function WorkspaceInspectorHost({
                 preview={fileSelection.preview}
                 loading={fileSelection.loading}
                 error={fileSelection.error}
+                onOpenFile={onOpenDocument}
                 backAction={
                   compact && drillInByView.files && fileSelection.entry
                     ? {

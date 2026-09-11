@@ -3002,6 +3002,17 @@ export default function App() {
                       )
                     }
                     onOpenDiffFile={openDiffFileInExplorer}
+                    onOpenDocument={(path) => {
+                      if (inspectorWorkspace)
+                        openFileExplorerFile(inspectorWorkspace.workspace_id, {
+                          name: path.split("/").pop() ?? path,
+                          path,
+                          type: "file",
+                          size: 0,
+                          mtime_ms: 0,
+                          hidden: false,
+                        });
+                    }}
                     onViewChange={setInspectorView}
                     onDockChange={setInspectorDock}
                     onExpandedChange={setInspectorExpanded}
