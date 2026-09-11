@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Add platform-aware keyboard presets and a searchable shortcut editor under
+  Behavior & automation, with custom bindings and preset import/export.
+
 ## 0.6.2 - 2026-09-11
 
 - Reload open tabs once when an update removes their cached code chunks, instead
