@@ -171,6 +171,7 @@ function GitStatusBadges({
 }
 
 export function WorkspaceTree({
+  agentsFirst = false,
   onSelect,
   onBrowseFiles,
   onReviewChanges,
@@ -179,6 +180,7 @@ export function WorkspaceTree({
   onReviewChangesForAgent,
   onViewAgentHistory,
 }: {
+  agentsFirst?: boolean;
   onSelect?: (workspace: Workspace) => void;
   onBrowseFiles?: (workspace: Workspace) => void;
   onReviewChanges?: (workspace: Workspace) => void;
@@ -473,7 +475,11 @@ export function WorkspaceTree({
   if (s.workspaces.length === 0) {
     return (
       <>
-        <div className="panel tree workspace-tree-panel" tabIndex={-1}>
+        <div
+          key="workspaces"
+          className="panel tree workspace-tree-panel"
+          tabIndex={-1}
+        >
           <div className="panel-head">
             <h2>Workspaces</h2>
             <button
@@ -509,121 +515,131 @@ export function WorkspaceTree({
     (workspace) => workspace.focused && workspace.worktree,
   );
 
+  const workspacePanel = (
+    <div
+      key="workspaces"
+      className="panel tree workspace-tree-panel"
+      tabIndex={-1}
+    >
+      <div className="panel-head">
+        <h2>Workspaces</h2>
+        <div className="panel-actions">
+          {focusedRepoWorkspace ? (
+            <button
+              type="button"
+              className="panel-add panel-action-icon"
+              title="Worktree lifecycle"
+              aria-label="Open worktree lifecycle"
+              onClick={() =>
+                setLifecycleWorkspaceId(focusedRepoWorkspace.workspace_id)
+              }
+            >
+              <GitBranch size={14} />
+            </button>
+          ) : null}
+          <button
+            className="panel-add"
+            title="New workspace"
+            onClick={() => setCreateOpen(true)}
+          >
+            +
+          </button>
+        </div>
+      </div>
+      <div
+        className="workspace-tree-content"
+        role="tree"
+        aria-label="Workspaces and agents"
+      >
+        {topLevel.map((w) => (
+          <WorkspaceRow
+            key={w.workspace_id}
+            w={w}
+            depth={0}
+            childrenByParent={childrenByParent}
+            agentsByWorkspace={
+              agentLayout === "nested"
+                ? agentsByWorkspace
+                : EMPTY_AGENT_PANES_BY_WORKSPACE
+            }
+            tabCountsByWorkspace={tabCountsByWorkspace}
+            activePaneId={activePaneId}
+            pinnedWorkspaceKeys={pinnedWorkspaceSet}
+            collapsedWorktreeGroupKeys={collapsedWorktreeGroupSet}
+            onCollapsedChange={updateCollapsedWorktreeGroup}
+            onSelect={onSelect}
+            onSelectAgent={onSelectAgent}
+            onAgentContextMenu={(pane, x, y) => setAgentMenu({ pane, x, y })}
+            onContextMenu={(w, x, y) => setMenu({ workspace: w, x, y })}
+            workspaceDrag={{
+              isDragging: draggedWorkspaceId === w.workspace_id,
+              dropPosition:
+                workspaceDropTarget?.workspaceId === w.workspace_id
+                  ? workspaceDropTarget.position
+                  : null,
+              onDragStart: (e) => onWorkspaceDragStart(w, e),
+              onDragOver: (e) => onWorkspaceDragOver(w, e),
+              onDrop: (e) => onWorkspaceDrop(w, e),
+              onDragEnd: clearWorkspaceDrag,
+            }}
+          />
+        ))}
+      </div>
+      <AgentLayoutControl value={agentLayout} onChange={setAgentLayout} />
+    </div>
+  );
+  const agentsPanel =
+    agentLayout === "separate" ? (
+      <div key="agents" className="panel agents-panel">
+        <h2>Agents</h2>
+        <div className="agents-list">
+          {agentPanes.length > 0 ? (
+            agentPanes.map((pane) => {
+              const workspace = s.workspaces.find(
+                (candidate) => candidate.workspace_id === pane.workspace_id,
+              );
+              return (
+                <AgentRow
+                  key={pane.pane_id}
+                  pane={pane}
+                  selected={
+                    pane.pane_id === activePaneId ||
+                    (!activePaneId && pane.focused)
+                  }
+                  showPaneId
+                  variant="standalone"
+                  workspaceLabel={
+                    workspace
+                      ? workspaceDisplayName(workspace)
+                      : pane.workspace_id
+                  }
+                  onSelect={onSelectAgent}
+                  onOpenMenu={(x, y) => setAgentMenu({ pane, x, y })}
+                  drag={{
+                    isDragging: draggedAgentPaneId === pane.pane_id,
+                    dropPosition:
+                      agentDropTarget?.paneId === pane.pane_id
+                        ? agentDropTarget.position
+                        : null,
+                    onDragStart: (event) => onAgentDragStart(pane, event),
+                    onDragOver: (event) => onAgentDragOver(pane, event),
+                    onDrop: (event) => onAgentDrop(pane, event),
+                    onDragEnd: clearAgentDrag,
+                  }}
+                />
+              );
+            })
+          ) : (
+            <p className="muted">No agent sessions.</p>
+          )}
+        </div>
+      </div>
+    ) : null;
+
   return (
     <>
-      <div className="panel tree workspace-tree-panel" tabIndex={-1}>
-        <div className="panel-head">
-          <h2>Workspaces</h2>
-          <div className="panel-actions">
-            {focusedRepoWorkspace ? (
-              <button
-                type="button"
-                className="panel-add panel-action-icon"
-                title="Worktree lifecycle"
-                aria-label="Open worktree lifecycle"
-                onClick={() =>
-                  setLifecycleWorkspaceId(focusedRepoWorkspace.workspace_id)
-                }
-              >
-                <GitBranch size={14} />
-              </button>
-            ) : null}
-            <button
-              className="panel-add"
-              title="New workspace"
-              onClick={() => setCreateOpen(true)}
-            >
-              +
-            </button>
-          </div>
-        </div>
-        <div
-          className="workspace-tree-content"
-          role="tree"
-          aria-label="Workspaces and agents"
-        >
-          {topLevel.map((w) => (
-            <WorkspaceRow
-              key={w.workspace_id}
-              w={w}
-              depth={0}
-              childrenByParent={childrenByParent}
-              agentsByWorkspace={
-                agentLayout === "nested"
-                  ? agentsByWorkspace
-                  : EMPTY_AGENT_PANES_BY_WORKSPACE
-              }
-              tabCountsByWorkspace={tabCountsByWorkspace}
-              activePaneId={activePaneId}
-              pinnedWorkspaceKeys={pinnedWorkspaceSet}
-              collapsedWorktreeGroupKeys={collapsedWorktreeGroupSet}
-              onCollapsedChange={updateCollapsedWorktreeGroup}
-              onSelect={onSelect}
-              onSelectAgent={onSelectAgent}
-              onAgentContextMenu={(pane, x, y) => setAgentMenu({ pane, x, y })}
-              onContextMenu={(w, x, y) => setMenu({ workspace: w, x, y })}
-              workspaceDrag={{
-                isDragging: draggedWorkspaceId === w.workspace_id,
-                dropPosition:
-                  workspaceDropTarget?.workspaceId === w.workspace_id
-                    ? workspaceDropTarget.position
-                    : null,
-                onDragStart: (e) => onWorkspaceDragStart(w, e),
-                onDragOver: (e) => onWorkspaceDragOver(w, e),
-                onDrop: (e) => onWorkspaceDrop(w, e),
-                onDragEnd: clearWorkspaceDrag,
-              }}
-            />
-          ))}
-        </div>
-        <AgentLayoutControl value={agentLayout} onChange={setAgentLayout} />
-      </div>
-      {agentLayout === "separate" ? (
-        <div className="panel agents-panel">
-          <h2>Agents</h2>
-          <div className="agents-list">
-            {agentPanes.length > 0 ? (
-              agentPanes.map((pane) => {
-                const workspace = s.workspaces.find(
-                  (candidate) => candidate.workspace_id === pane.workspace_id,
-                );
-                return (
-                  <AgentRow
-                    key={pane.pane_id}
-                    pane={pane}
-                    selected={
-                      pane.pane_id === activePaneId ||
-                      (!activePaneId && pane.focused)
-                    }
-                    showPaneId
-                    variant="standalone"
-                    workspaceLabel={
-                      workspace
-                        ? workspaceDisplayName(workspace)
-                        : pane.workspace_id
-                    }
-                    onSelect={onSelectAgent}
-                    onOpenMenu={(x, y) => setAgentMenu({ pane, x, y })}
-                    drag={{
-                      isDragging: draggedAgentPaneId === pane.pane_id,
-                      dropPosition:
-                        agentDropTarget?.paneId === pane.pane_id
-                          ? agentDropTarget.position
-                          : null,
-                      onDragStart: (event) => onAgentDragStart(pane, event),
-                      onDragOver: (event) => onAgentDragOver(pane, event),
-                      onDrop: (event) => onAgentDrop(pane, event),
-                      onDragEnd: clearAgentDrag,
-                    }}
-                  />
-                );
-              })
-            ) : (
-              <p className="muted">No agent sessions.</p>
-            )}
-          </div>
-        </div>
-      ) : null}
+      {agentsFirst ? agentsPanel : workspacePanel}
+      {agentsFirst ? workspacePanel : agentsPanel}
       <ContextMenu
         state={menu}
         pinnedWorkspaceKeys={pinnedWorkspaceSet}

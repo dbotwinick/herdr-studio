@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Remember separate mobile and desktop sidebar order preferences, with agents on
+  top by default on mobile.
+- Add a Mobile Layout dialog under Appearance with a configurable breakpoint and
+  saved or URL-forced display modes for foldable phones and other compact screens.
+
 ## 0.6.2 - 2026-09-11
 
 - Reload open tabs once when an update removes their cached code chunks, instead
