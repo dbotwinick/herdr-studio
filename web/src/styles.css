@@ -2892,10 +2892,10 @@ textarea:focus {
   -webkit-user-select: none;
   -webkit-touch-callout: none;
 }
-.agent-row.is-standalone {
+.agent-row.is-standalone[draggable="true"] {
   cursor: grab;
 }
-.agent-row.is-standalone:active {
+.agent-row.is-standalone[draggable="true"]:active {
   cursor: grabbing;
 }
 .agent-row.is-dragging {
@@ -8471,6 +8471,56 @@ textarea:focus {
   display: none;
 }
 
+.agent-list-control {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  color: var(--muted);
+}
+.agent-list-control:hover,
+.agent-list-control:focus-within,
+.agent-list-control.is-active {
+  background: var(--accent-soft);
+  color: var(--text);
+}
+.agent-list-control:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.agent-list-control select {
+  /* Keep the native picker and keyboard support behind the compact icon. */
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  opacity: 0;
+  cursor: pointer;
+  font-size: 16px;
+}
+.agent-group-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  margin: 4px 0;
+  padding: 6px 4px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font-size: 12px;
+  text-align: left;
+}
+.agent-group-toggle > span:first-of-type {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* ===== mobile nav (hidden on desktop) ===== */
 .mobile-nav {
   display: none;
@@ -9876,6 +9926,13 @@ textarea:focus {
   }
   .terminal-empty {
     border-radius: 0;
+  }
+  .agent-list-control {
+    width: 28px;
+    height: 28px;
+  }
+  .agent-group-toggle {
+    min-height: 36px;
   }
   .layout-pane-head {
     font-size: 12px;
