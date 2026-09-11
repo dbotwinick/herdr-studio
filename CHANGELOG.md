@@ -8,7 +8,8 @@
 - Open relative Markdown document links in the current preview, including heading
   anchors, without opening another Studio window.
 - Add attention-first agent ordering and collapsible status, workspace, and agent
-  type groups in the separate Agents panel.
+  type groups in the separate Agents panel, plus named tabs in both nested and
+  separate agent rows.
 - Remember separate mobile and desktop sidebar order preferences, with agents on
   top by default on mobile.
 - Add a Mobile Layout dialog under Appearance with a configurable breakpoint and
