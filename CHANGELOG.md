@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Add platform-aware keyboard presets and a searchable shortcut editor under
+  Behavior & automation, with custom bindings and preset import/export.
+
 - Open relative Markdown document links in the current preview, including heading
   anchors, without opening another Studio window.
 - Add attention-first agent ordering and collapsible status, workspace, and agent

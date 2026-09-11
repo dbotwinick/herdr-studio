@@ -1,10 +1,11 @@
+import { defaultShortcutBindings } from "./shortcutBindings";
 import { describe, expect, test } from "bun:test";
 import type { Workspace } from "./types";
 import {
   checkoutKeyForWorkspace,
   inspectorMaximumSize,
   inspectorNavigationRatioAtPosition,
-  isWorkspaceInspectorShortcut,
+  isWorkspaceInspectorShortcut as resolveShortcut,
   INSPECTOR_SEPARATOR_SIZE,
   readInspectorPreferences,
   relativePathWithinCheckout,
@@ -17,6 +18,10 @@ import {
   writeInspectorPreferences,
   type WorkspaceInspectorState,
 } from "./workspaceResource";
+
+const isWorkspaceInspectorShortcut = (
+  event: Parameters<typeof resolveShortcut>[0],
+) => resolveShortcut(event, defaultShortcutBindings("mac"));
 
 function workspace(
   workspaceId: string,

@@ -1,3 +1,4 @@
+import { initializeShortcutPreferences } from "./shortcutPreferences";
 import { initializeLayoutPreferences } from "./layoutPreferences";
 import React from "react";
 import ReactDOM from "react-dom/client";
@@ -35,6 +36,7 @@ class ErrorBoundary extends React.Component<
 }
 
 initializeLayoutPreferences();
+initializeShortcutPreferences();
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>

@@ -48,9 +48,17 @@ import {
 } from "../terminalThemes";
 import { AutoSyncRepositoriesDialog } from "./AutoSyncRepositoriesDialog";
 import { ChangelogDialog } from "./ChangelogDialog";
-import { ShortcutLookupDialog } from "./ShortcutLookupDialog";
+const ShortcutLookupDialog = lazyWithReload("keyboard-shortcuts", () =>
+  import("./ShortcutLookupDialog").then((module) => ({
+    default: module.ShortcutLookupDialog,
+  })),
+);
 import { MobileTerminalShortcutsDialog } from "./MobileTerminalShortcutsDialog";
-import { TerminalThemeDialog } from "./TerminalThemeDialog";
+const TerminalThemeDialog = lazyWithReload("terminal-theme", () =>
+  import("./TerminalThemeDialog").then((module) => ({
+    default: module.TerminalThemeDialog,
+  })),
+);
 
 const MobileLayoutDialog = lazyWithReload("mobile-layout", () =>
   import("./MobileLayoutDialog").then((module) => ({
@@ -486,6 +494,15 @@ export function ConfigMenu({
               </div>
               <ConfigMenuItem
                 icon={<Keyboard size={15} />}
+                label="Keyboard shortcuts"
+                description="Presets, bindings, and help"
+                onClick={() => {
+                  setOpen(false);
+                  setShortcutsOpen(true);
+                }}
+              />
+              <ConfigMenuItem
+                icon={<Keyboard size={15} />}
                 label="Mobile terminal shortcuts"
                 description={`${mobileTerminalShortcutCount(
                   mobileTerminalShortcuts,
@@ -517,16 +534,7 @@ export function ConfigMenu({
                   setChangelogOpen(true);
                 }}
               />
-              <ConfigMenuItem
-                icon={<Keyboard size={15} />}
-                label="Keyboard shortcuts"
-                description="View shortcut lookup"
-                className="config-menu-item-desktop-only"
-                onClick={() => {
-                  setOpen(false);
-                  setShortcutsOpen(true);
-                }}
-              />
+
               <ConfigMenuItem
                 icon={<RefreshCw size={15} />}
                 label="Reload page"
@@ -613,10 +621,11 @@ export function ConfigMenu({
         open={changelogOpen}
         onClose={() => setChangelogOpen(false)}
       />
-      <ShortcutLookupDialog
-        open={shortcutsOpen}
-        onClose={() => setShortcutsOpen(false)}
-      />
+      {shortcutsOpen ? (
+        <Suspense fallback={null}>
+          <ShortcutLookupDialog open onClose={() => setShortcutsOpen(false)} />
+        </Suspense>
+      ) : null}
       <MobileTerminalShortcutsDialog
         open={mobileShortcutsOpen}
         rows={mobileTerminalShortcuts}
@@ -625,14 +634,18 @@ export function ConfigMenu({
         onSideChange={onMobileTerminalSideShortcutsChange}
         onClose={() => setMobileShortcutsOpen(false)}
       />
-      <TerminalThemeDialog
-        open={terminalThemesOpen}
-        selection={terminalThemeSelection}
-        customThemes={customTerminalThemes}
-        onSelectionChange={onTerminalThemeSelectionChange}
-        onCustomThemesChange={onCustomTerminalThemesChange}
-        onClose={() => setTerminalThemesOpen(false)}
-      />
+      {terminalThemesOpen ? (
+        <Suspense fallback={null}>
+          <TerminalThemeDialog
+            open
+            selection={terminalThemeSelection}
+            customThemes={customTerminalThemes}
+            onSelectionChange={onTerminalThemeSelectionChange}
+            onCustomThemesChange={onCustomTerminalThemesChange}
+            onClose={() => setTerminalThemesOpen(false)}
+          />
+        </Suspense>
+      ) : null}
       <Suspense fallback={null}>
         {mobileLayoutOpen ? (
           <MobileLayoutDialog
