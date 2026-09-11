@@ -121,7 +121,7 @@ panel.
 - Use the History minimap to jump between messages; inspect tool details on demand.
 - Keep agents nested under their workspace, or choose **Agents: Separate** at the
   bottom of the Workspaces panel for a dedicated panel. The separate panel
-  defaults to **Attention first**: blocked, done, idle, working, then unknown.
+  defaults to **Attention first**: blocked, done, working, idle, then unknown.
   Use the Sort and Group icons beside **Agents** to choose an order or grouping.
   Choose workspace order or manual order; manual order with no grouping supports
   drag-to-reorder. Group by status, workspace, or agent type and collapse groups.

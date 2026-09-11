@@ -86,7 +86,7 @@ describe("agent attention and grouping", () => {
       sortAgentPanes(agents, ["p4", "p1", "p2"], "attention").map(
         (pane) => pane.pane_id,
       ),
-    ).toEqual(["p4", "p2", "p3", "p5", "p1", "p6"]);
+    ).toEqual(["p4", "p2", "p3", "p1", "p5", "p6"]);
     expect(agents.map((pane) => pane.pane_id)).toEqual([
       "p1",
       "p2",
@@ -112,8 +112,8 @@ describe("agent attention and grouping", () => {
     expect(groups.map((group) => group.key)).toEqual([
       "blocked",
       "done",
-      "idle",
       "working",
+      "idle",
       "unknown",
     ]);
     expect(groups[0].panes.map((pane) => pane.pane_id)).toEqual(["p2", "p4"]);

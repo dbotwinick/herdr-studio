@@ -102,8 +102,8 @@ export function parseAgentListPreferences(
 const ATTENTION_STATUSES = [
   "blocked",
   "done",
-  "idle",
   "working",
+  "idle",
   "unknown",
 ] as const;
 
