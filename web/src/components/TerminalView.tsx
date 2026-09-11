@@ -42,6 +42,7 @@ import {
   useStoreSelector,
 } from "../store";
 import {
+  copyTextFromUserGesture,
   createTerminalClipboardProvider,
   decodeTerminalClipboard,
 } from "../terminalClipboard";
@@ -756,7 +757,10 @@ export function TerminalView({
       if (shouldAvoidVirtualKeyboard()) blurTerminalInput();
       const targetTerminalId =
         desiredTerminalRef.current ?? paneTerminalIdRef.current;
-      if (!targetTerminalId || store.terminalScrollReason(targetTerminalId))
+      if (
+        !targetTerminalId ||
+        (amount === "half" && store.terminalScrollReason(targetTerminalId))
+      )
         return;
       connectionClient
         .call("terminal.scroll", {
@@ -1231,6 +1235,17 @@ export function TerminalView({
         e.preventDefault();
         e.stopPropagation();
         sendText(sequence);
+        return false;
+      }
+      if (e.type === "keydown" && shortcutMatches(e, "terminal.copy")) {
+        e.preventDefault();
+        e.stopPropagation();
+        const text = trimCopiedLinePadding(term.getSelection());
+        if (text) {
+          void copyTextFromUserGesture(text).catch((error) => {
+            setUploadError(`Copy failed: ${(error as Error).message}`);
+          });
+        }
         return false;
       }
       if (e.type === "keydown" && shortcutMatches(e, "terminal.paste")) {
