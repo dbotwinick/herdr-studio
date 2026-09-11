@@ -80,7 +80,10 @@ Mouse input uses zero-based pane-local cells, bounded to the crop. Only a press
 inside the pane acquires drag/release ownership; later positions clamp to its
 edge. Reporting changes and session closure cancel ownership. Mouse-aware apps
 receive semantic mouse events; ordinary wheels and explicit history shortcuts
-use history scrolling. During browser selection, presentation retains only the
+use history scrolling. History requests retain their intended position separately
+from surface feedback, coalesce queued movement, and wait for the final surface
+acknowledgement before accepting unrelated viewport changes. New terminal input
+cancels queued history movement. During browser selection, presentation retains only the
 latest full repaint and resumes when selection clears. Pane/session changes
 retire pending presentation; selection replay cannot send application input.
 Endpoint frames include content revision and absolute viewport rows when the

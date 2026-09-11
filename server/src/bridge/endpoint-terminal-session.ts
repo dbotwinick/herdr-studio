@@ -35,6 +35,10 @@ export class EndpointTerminalSession extends EventEmitter {
     offsetFromBottom: number;
     maxOffsetFromBottom: number;
   } | null = null;
+  // Keep wheel intent separate from viewport feedback: a delayed surface must
+  // not replace movement already queued by newer wheel events.
+  private scrollTarget: number | null = null;
+  private scrollInFlight = false;
   private closed = false;
   private seq = 0;
   private deferredFrame: {
@@ -247,12 +251,33 @@ export class EndpointTerminalSession extends EventEmitter {
     if (!pane?.mouseReporting) this.pressedMouseButtons.clear();
     if (!pane) return;
     this.fitSurface(surface, pane);
+    const previousMaxOffset = this.lastScroll?.maxOffsetFromBottom;
     this.lastScroll = pane.scroll
       ? {
           offsetFromBottom: pane.scroll.offsetFromBottom,
           maxOffsetFromBottom: pane.scroll.maxOffsetFromBottom,
         }
       : null;
+    if (!this.lastScroll) {
+      this.scrollTarget = null;
+    } else if (this.scrollTarget !== null) {
+      // Output can grow history while scrolling. Keep the intended absolute
+      // row stationary, except at the bottom where following output is wanted.
+      const growth =
+        previousMaxOffset === undefined
+          ? 0
+          : this.lastScroll.maxOffsetFromBottom - previousMaxOffset;
+      if (this.scrollTarget > 0) this.scrollTarget += growth;
+      this.scrollTarget = Math.max(
+        0,
+        Math.min(this.lastScroll.maxOffsetFromBottom, this.scrollTarget),
+      );
+      if (
+        !this.scrollInFlight &&
+        this.lastScroll.offsetFromBottom === this.scrollTarget
+      )
+        this.scrollTarget = null;
+    }
 
     const cropped = cropFrame(surface.frame, pane.innerRect);
     const bytes = Buffer.from(frameToAnsi(cropped), "utf8");
@@ -435,6 +460,8 @@ export class EndpointTerminalSession extends EventEmitter {
 
   input(data: Buffer) {
     if (!this.paneId || this.closed) return;
+    // Typing or application input supersedes a queued history gesture.
+    if (data.length > 0) this.scrollTarget = null;
     const pane = this.latestSurface()?.panes.find(
       (p) => p.paneId === this.paneId,
     );
@@ -522,27 +549,54 @@ export class EndpointTerminalSession extends EventEmitter {
       0,
       Math.min(
         this.lastScroll.maxOffsetFromBottom,
-        this.lastScroll.offsetFromBottom + delta,
+        (this.scrollTarget ?? this.lastScroll.offsetFromBottom) + delta,
       ),
     );
-    if (offset === this.lastScroll.offsetFromBottom) return;
-    this.lastScroll.offsetFromBottom = offset;
-    const paneId = this.paneId;
-    this.enqueueCommand(() =>
-      this.client.callEndpoint("pane.scroll", {
-        pane_id: paneId,
+    if (offset === (this.scrollTarget ?? this.lastScroll.offsetFromBottom))
+      return;
+    this.scrollTarget = offset;
+    this.flushScroll();
+  }
+
+  private flushScroll() {
+    if (this.closed || this.scrollInFlight || this.scrollTarget === null)
+      return;
+    this.scrollInFlight = true;
+    this.enqueueCommand(async () => {
+      const offset = this.scrollTarget;
+      if (offset === null || !this.paneId) return null;
+      await this.client.callEndpoint("pane.scroll", {
+        pane_id: this.paneId,
         offset_from_bottom: offset,
-      }),
-    ).catch((e) =>
-      this.logger.debug("endpoint pane.scroll failed", {
-        error: e instanceof Error ? e.message : String(e),
-      }),
-    );
+      });
+      return offset;
+    })
+      .then((sent) => {
+        this.scrollInFlight = false;
+        if (this.closed || this.scrollTarget === null) return;
+        if (this.scrollTarget !== sent) {
+          // Coalesce the burst into its newest target rather than playing every
+          // intermediate position back after the wheel has stopped.
+          this.flushScroll();
+        } else if (this.lastScroll?.offsetFromBottom === sent) {
+          this.scrollTarget = null;
+        }
+        // An RPC reply can precede its surface. Retain the target until that
+        // surface confirms it, so another wheel event cannot start from stale data.
+      })
+      .catch((e) => {
+        this.scrollInFlight = false;
+        this.scrollTarget = null;
+        this.logger.debug("endpoint pane.scroll failed", {
+          error: e instanceof Error ? e.message : String(e),
+        });
+      });
   }
 
   close() {
     if (this.closed) return;
     this.closed = true;
+    this.scrollTarget = null;
     this.pressedMouseButtons.clear();
     if (this.escFlushTimer) clearTimeout(this.escFlushTimer);
     this.clearDeferredFrame();

@@ -23,6 +23,9 @@
 - Keep the cursor on the selected terminal pane when switching splits, and preserve
   cursor updates and hide/show transitions across incremental repaints.
 
+- Keep fast terminal wheel scrolling from jumping backward or replaying stale
+  positions when terminal frames arrive late.
+
 ## 0.6.2 - 2026-09-11
 
 - Reload open tabs once when an update removes their cached code chunks, instead

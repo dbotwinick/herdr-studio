@@ -70,6 +70,8 @@ type TestPane = {
   mouseReporting: boolean;
   rect?: Rect;
   innerRect?: Rect;
+  offset?: number;
+  maxOffset?: number;
 };
 const DEFAULT_PANES: TestPane[] = [
   { paneId: "w1:p1", x: 0, mouseReporting: false },
@@ -83,6 +85,8 @@ function writePane(
   mouseReporting = false,
   rect = { x, y, width: 10, height: 5 },
   innerRect = { x: x + 1, y: y + 1, width: 8, height: 3 },
+  offset = 0,
+  maxOffset = 100,
 ) {
   w.string(paneId);
   w.varint(1);
@@ -94,8 +98,8 @@ function writePane(
   }
   w.bool(false);
   w.bool(true); // scroll metrics present
-  w.varint(0); // offset_from_bottom
-  w.varint(100); // max_offset_from_bottom
+  w.varint(offset); // offset_from_bottom
+  w.varint(maxOffset); // max_offset_from_bottom
   w.varint(3); // viewport_rows
   w.bool(true); // focused
   w.bool(mouseReporting);
@@ -126,6 +130,8 @@ function surfaceFrame(
       pane.mouseReporting,
       pane.rect,
       pane.innerRect,
+      pane.offset,
+      pane.maxOffset,
     );
   w.varint(0);
   w.bool(false);
@@ -1114,12 +1120,16 @@ test("terminal bridge carries endpoint mouse state and targets each attached ter
       ["down", "history"],
       ["up", "page-key"],
     ]) {
+      const before = scrollRequests.length;
       await bridge.handleTerminalRpc(ws, "history", "terminal.scroll", {
         terminal_id: "right",
         direction,
         lines: 7,
         source,
       });
+      // Page keys go to the application; history requests may coalesce.
+      if (source === "history")
+        await settleUntil(() => scrollRequests.length > before);
     }
     await Bun.sleep(40);
     expect(scrollRequests).toEqual([
@@ -1849,14 +1859,14 @@ describe("attached endpoint creation and input readiness", () => {
         { browser_source: creationSource },
         () => true,
       );
+      await bridge.handleTerminalRpc(ws, "input", "terminal.input", {
+        terminal_id: "term1",
+        data: "WA==",
+      });
       await bridge.handleTerminalRpc(ws, "scroll", "terminal.scroll", {
         terminal_id: "term1",
         direction: "up",
         lines: 1,
-      });
-      await bridge.handleTerminalRpc(ws, "input", "terminal.input", {
-        terminal_id: "term1",
-        data: "WA==",
       });
       await settleUntil(() => inputs.length === 1);
       expect(requests).toEqual(["pane.focus", "tab.create"]);
@@ -2722,3 +2732,185 @@ for (const invalidate of [false, true]) {
     }
   });
 }
+
+describe("wheel bursts with delayed endpoint frames", () => {
+  test("a stale repaint cannot rewind pending wheel movement", async () => {
+    const first = deferred<void>();
+    const requests: number[] = [];
+    let send!: (panes: TestPane[]) => void;
+    const socketPath = await startSessionServer({
+      onConnection: (push) => {
+        send = push;
+      },
+      onRequest: async (method, params) => {
+        if (method !== "pane.scroll") return;
+        requests.push(params.offset_from_bottom);
+        if (requests.length === 1) await first.promise;
+        send([{ ...DEFAULT_PANES[0], offset: params.offset_from_bottom }]);
+      },
+    });
+    const session = new EndpointTerminalSession(
+      socketPath,
+      "term1",
+      async () => "w1:p1",
+    );
+    let frames = 0;
+    session.on("terminal", () => frames++);
+    try {
+      await session.connect(8, 3, { cols: 10, rows: 5 });
+      session.scroll("up", 3);
+      await settleUntil(() => requests.length === 1);
+      session.scroll("up", 3);
+      const before = frames;
+      send(DEFAULT_PANES); // old viewport arrives while the first request is pending
+      await settleUntil(() => frames > before);
+      session.scroll("up", 3);
+      first.resolve();
+      await Bun.sleep(60);
+      expect(requests[requests.length - 1]).toBe(9);
+      expect(
+        requests.every((offset, i) => i === 0 || offset >= requests[i - 1]),
+      ).toBe(true);
+      expect(requests.length).toBeLessThanOrEqual(2);
+    } finally {
+      first.resolve();
+      session.close();
+    }
+  });
+});
+
+test("wheel targets survive RPC replies before their surface acknowledgements", async () => {
+  const requests: number[] = [];
+  let send!: (panes: TestPane[]) => void;
+  const socketPath = await startSessionServer({
+    onConnection: (push) => {
+      send = push;
+    },
+    onRequest: (method, params) => {
+      if (method === "pane.scroll") requests.push(params.offset_from_bottom);
+    },
+  });
+  const session = new EndpointTerminalSession(
+    socketPath,
+    "term1",
+    async () => "w1:p1",
+  );
+  let frames = 0;
+  session.on("terminal", () => frames++);
+  const publish = async (offset: number) => {
+    const before = frames;
+    send([{ ...DEFAULT_PANES[0], offset }]);
+    await settleUntil(() => frames > before);
+  };
+  try {
+    await session.connect(8, 3, { cols: 10, rows: 5 });
+    session.scroll("up", 3);
+    await settleUntil(() => requests.length === 1);
+    session.scroll("up", 3);
+    await settleUntil(() => requests.length === 2);
+    await publish(3); // first acknowledgement is still older than the intended 6
+    session.scroll("up", 3);
+    await settleUntil(() => requests.length === 3);
+    await publish(9); // final acknowledgement retires the pending intent
+    await publish(20); // subsequent scrolling by another client is authoritative
+    session.scroll("down", 2);
+    await settleUntil(() => requests.length === 4);
+    expect(requests).toEqual([3, 6, 9, 18]);
+  } finally {
+    session.close();
+  }
+});
+
+for (const scenario of ["reverse", "grow", "close", "input"] as const) {
+  test(`pending wheel burst handles ${scenario}`, async () => {
+    const first = deferred<void>();
+    const requests: number[] = [];
+    let send!: (panes: TestPane[]) => void;
+    let maxOffset = 100;
+    const socketPath = await startSessionServer({
+      onConnection: (push) => {
+        send = push;
+      },
+      onRequest: async (method, params) => {
+        if (method !== "pane.scroll") return;
+        requests.push(params.offset_from_bottom);
+        if (requests.length === 1) await first.promise;
+        if (scenario !== "close")
+          send([
+            {
+              ...DEFAULT_PANES[0],
+              offset: params.offset_from_bottom,
+              maxOffset,
+            },
+          ]);
+      },
+    });
+    const session = new EndpointTerminalSession(
+      socketPath,
+      "term1",
+      async () => "w1:p1",
+    );
+    let frames = 0;
+    session.on("terminal", () => frames++);
+    try {
+      await session.connect(8, 3, { cols: 10, rows: 5 });
+      session.scroll("up", 3);
+      await settleUntil(() => requests.length === 1);
+      if (scenario === "grow") {
+        maxOffset = 105;
+        const before = frames;
+        send([{ ...DEFAULT_PANES[0], maxOffset }]);
+        await settleUntil(() => frames > before);
+        session.scroll("up", 2);
+      } else {
+        session.scroll("up", 12);
+        if (scenario === "reverse") session.scroll("down", 20);
+        else if (scenario === "input") session.input(Buffer.from("x"));
+        else session.close();
+      }
+      first.resolve();
+      if (scenario !== "close" && scenario !== "input")
+        await settleUntil(() => requests.length === 2);
+      else await Bun.sleep(30);
+      expect(requests).toEqual(
+        scenario === "grow" ? [3, 10] : scenario === "reverse" ? [3, 0] : [3],
+      );
+    } finally {
+      first.resolve();
+      session.close();
+    }
+  });
+}
+
+test("failed scrolling releases pending intent for the next wheel gesture", async () => {
+  const requests: number[] = [];
+  const failed = deferred<void>();
+  const socketPath = await startSessionServer({
+    onRequest: (method, params) => {
+      if (method !== "pane.scroll") return;
+      requests.push(params.offset_from_bottom);
+      if (requests.length === 1) throw new Error("scroll rejected");
+    },
+  });
+  const session = new EndpointTerminalSession(
+    socketPath,
+    "term1",
+    async () => "w1:p1",
+    {
+      ...silentLogger,
+      debug: (message) => {
+        if (message === "endpoint pane.scroll failed") failed.resolve();
+      },
+    },
+  );
+  try {
+    await session.connect(8, 3, { cols: 10, rows: 5 });
+    session.scroll("up", 3);
+    await failed.promise;
+    session.scroll("up", 2);
+    await settleUntil(() => requests.length === 2);
+    expect(requests).toEqual([3, 2]);
+  } finally {
+    session.close();
+  }
+});
