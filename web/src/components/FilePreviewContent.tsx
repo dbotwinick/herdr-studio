@@ -167,6 +167,7 @@ export function FilePreviewContent({
   annotations = [],
   backAction,
   onOpenChanges,
+  onOpenFile,
   onCreateAnnotation,
   onReanchorAnnotations,
 }: {
@@ -179,6 +180,7 @@ export function FilePreviewContent({
   backAction?: { label: string; onClick: () => void };
   annotations?: readonly ReviewAnnotation[];
   onOpenChanges?: () => void;
+  onOpenFile?: (path: string) => void;
   onCreateAnnotation?: (annotation: NewReviewAnnotation) => void;
   onReanchorAnnotations?: (path: string, text: string) => void;
 }) {
@@ -196,6 +198,10 @@ export function FilePreviewContent({
     useState<PendingFileAnnotation | null>(null);
   const [markdownSelection, setMarkdownSelection] =
     useState<MarkdownSelectionTarget | null>(null);
+  const [documentDestination, setDocumentDestination] = useState<{
+    path: string;
+    fragment: string;
+  } | null>(null);
   const theme = useDocumentTheme();
   const previewText = preview?.text ?? null;
   const previewPath = preview?.path ?? "";
@@ -237,6 +243,11 @@ export function FilePreviewContent({
     preview?.workspace_id,
     previewPath,
   ]);
+  const markdownLinkUrlResolver = useMemo(() => {
+    if (!preview?.workspace_id) return undefined;
+    return (path: string) =>
+      workspaceFileUrl(connectionClient, preview.workspace_id, path);
+  }, [connectionClient, preview?.workspace_id]);
   const changesAvailable =
     changesContent !== undefined && !!changesKey && !!onOpenChanges;
   const showingChanges = detailTab === "changes" && changesAvailable;
@@ -527,6 +538,17 @@ export function FilePreviewContent({
             <MarkdownPreview
               text={previewText}
               imageUrlResolver={markdownImageUrlResolver}
+              documentPath={onOpenFile ? previewPath : undefined}
+              linkUrlResolver={markdownLinkUrlResolver}
+              fragment={
+                documentDestination?.path === previewPath
+                  ? documentDestination.fragment
+                  : undefined
+              }
+              onOpenDocument={(path, fragment) => {
+                setDocumentDestination({ path, fragment });
+                onOpenFile?.(path);
+              }}
               onSelectionChange={
                 onCreateAnnotation ? setMarkdownSelection : undefined
               }

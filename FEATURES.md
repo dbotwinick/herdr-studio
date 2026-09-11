@@ -120,7 +120,13 @@ panel.
   exports stay complete. See [History synchronization](docs/HISTORY.md).
 - Use the History minimap to jump between messages; inspect tool details on demand.
 - Keep agents nested under their workspace, or choose **Agents: Separate** at the
-  bottom of the Workspaces panel for a dedicated panel.
+  bottom of the Workspaces panel for a dedicated panel. The separate panel
+  defaults to **Attention first**: blocked, done, idle, working, then unknown.
+  Use the Sort and Group icons beside **Agents** to choose an order or grouping.
+  Choose workspace order or manual order; manual order with no grouping supports
+  drag-to-reorder. Group by status, workspace, or agent type and collapse groups.
+  Sorting and grouping are remembered in the browser; manual ordering is saved
+  per connection.
 - Inspect turn count, token usage, update time, session ID, session file, and
   other session details.
 - Open Session Inspector in Timeline, ATIF, or raw transcript mode, with search
@@ -232,6 +238,10 @@ Lifecycle to manage saved per-checkout settings.
   rendered as diagrams.
 - Render `.mmd`/`.mermaid` Mermaid sources as diagrams with a Raw/Rendered
   toggle.
+- Follow relative file links in Markdown previews within the current Inspector.
+  Links resolve from the document's directory; leading `/` resolves from the
+  workspace root. Heading fragments scroll within the destination document.
+  External links continue to open in a new browser tab.
 - Preview common images, PDFs, and workspace-local Markdown images; unsupported
   binary files remain download-only.
 - Drag files onto the workspace root or a directory to upload them.
@@ -290,6 +300,18 @@ before mutation, rejecting stale menus rather than destroying newer work.
 
 - Responsive workspace, terminal, File Explorer, and Diff Viewer layouts with
   mobile-safe viewport and keyboard handling.
+- Set **Menu → Appearance → Mobile Layout → Display mode** to Automatic,
+  Mobile, or Desktop.
+  Automatic uses **Mobile up to (px)** (768 by default, adjustable from 320 to
+  2560 CSS pixels). A larger threshold keeps an unfolded phone in mobile mode;
+  choosing Mobile keeps it there at any width, including after reload.
+- Bookmark `?layout=mobile`, `?layout=desktop`, or `?layout=auto` to override the
+  saved mode for that URL. Choosing a display mode in the menu clears the URL
+  override while preserving other query parameters.
+- Choose **Agents on top** or **Workspaces on top** independently for mobile
+  and desktop under **Menu → Appearance → Mobile Layout**. This applies to the
+  separate Agents panel;
+  mobile defaults to agents first and desktop to workspaces first.
 - A floating terminal panel with two rows of configurable key actions.
 - A direct `2×8` shortcut editor: empty slots retain their position in the
   editor but are compacted out of the runtime panel.

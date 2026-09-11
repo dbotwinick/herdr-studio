@@ -2344,6 +2344,16 @@ function FileExplorerContent({
               preview={preview}
               loading={previewLoading}
               error={previewError}
+              onOpenFile={(path) =>
+                void loadPreview({
+                  name: path.split("/").pop() ?? path,
+                  path,
+                  type: "file",
+                  size: 0,
+                  mtime_ms: 0,
+                  hidden: false,
+                })
+              }
             />
           </Suspense>
         ) : null}
