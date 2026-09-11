@@ -90,6 +90,14 @@ cannot replace newer browser selections. This is independent workspace/tab
 navigation, not independent native same-tab pane focus. Legacy navigation,
 topology mutations, and terminal dimensions remain shared.
 
+Active terminal selection and terminal clicks send `terminal.focus` through the
+attached shell's `pane.focus` endpoint so the tab surface supplies that pane's
+cursor. The browser restores its selection after split attachments become ready,
+but does not refocus on streaming frames or routine snapshots. Focus requests are
+serialized per browser across endpoint lanes, superseded queued selections are
+discarded, and attachment ownership and connection leases are rechecked before
+dispatch. Same-tab cursor ownership remains shared with other Herdr clients.
+
 Creation uses explicit context and `focus: false`, adopting returned IDs only
 while the initiating selection and connection lease remain current. Studio-only
 `browser_source` identifies the source terminal, pane, tab, and workspace. The

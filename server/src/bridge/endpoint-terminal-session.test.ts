@@ -2451,3 +2451,160 @@ test("reconnect replaces advertisements while other connection runtimes retain t
     b.bridge.dispose();
   }
 });
+
+describe("attached endpoint cursor focus", () => {
+  test("focuses an owned attachment without input and rejects other viewers", async () => {
+    const requests: Array<{ method: string; params: any }> = [];
+    const inputs: string[] = [];
+    const socketPath = await startSessionServer({
+      onRequest: (method, params) => {
+        requests.push({ method, params });
+      },
+      onPaneInput: (paneId) => inputs.push(paneId),
+    });
+    const { bridge, ws, replies, attach } = creationBridge(socketPath);
+    try {
+      await attach();
+      requests.length = 0;
+      await bridge.handleTerminalRpc(ws, "focus", "terminal.focus", {
+        terminal_id: "term1",
+      });
+      expect(requests).toEqual([
+        { method: "pane.focus", params: { pane_id: "w1:p1" } },
+      ]);
+      expect(replies.find((r) => r.id === "focus")?.result).toEqual({
+        ok: true,
+      });
+      await bridge.handleTerminalRpc(
+        {} as ServerWebSocket<unknown>,
+        "other",
+        "terminal.focus",
+        { terminal_id: "term1" },
+      );
+      await bridge.handleTerminalRpc(ws, "unknown", "terminal.focus", {
+        terminal_id: "missing",
+      });
+      expect(replies.find((r) => r.id === "other")?.error).toBeDefined();
+      expect(replies.find((r) => r.id === "unknown")?.error).toBeDefined();
+      expect(requests).toHaveLength(1);
+      expect(inputs).toEqual([]);
+    } finally {
+      bridge.dispose();
+    }
+  });
+
+  for (const invalidation of [
+    "none",
+    "detach",
+    "replace",
+    "lease",
+    "disconnect",
+    "dispose",
+  ] as const) {
+    test(`waits for attachment readiness and handles ${invalidation}`, async () => {
+      const lookup = deferred<string>();
+      let lookupCount = 0;
+      let current = true;
+      const requests: string[] = [];
+      const socketPath = await startSessionServer({
+        onRequest: (method) => {
+          requests.push(method);
+        },
+      });
+      const { bridge, ws, replies, attach } = creationBridge(socketPath, {
+        lookup: async () => (++lookupCount === 1 ? lookup.promise : "w1:p1"),
+      });
+      try {
+        const attaching = attach();
+        await settleUntil(() => lookupCount === 1);
+        const focusing = bridge.handleTerminalRpc(
+          ws,
+          "focus",
+          "terminal.focus",
+          { terminal_id: "term1" },
+          () => current,
+        );
+        await Bun.sleep(10);
+        expect(requests).toEqual([]);
+        expect(replies.find((r) => r.id === "focus")).toBeUndefined();
+        if (invalidation === "lease") current = false;
+        else if (invalidation === "dispose") bridge.dispose();
+        else if (invalidation === "disconnect") bridge.cleanupWs(ws);
+        else if (invalidation !== "none") {
+          await bridge.handleTerminalRpc(ws, "detach", "terminal.detach", {
+            terminal_id: "term1",
+          });
+          if (invalidation === "replace") await attach("replacement");
+        }
+        lookup.resolve("w1:p1");
+        await Promise.all([attaching, focusing]);
+        const response = replies.find((r) => r.id === "focus");
+        if (invalidation === "none") {
+          expect(response?.result).toEqual({ ok: true });
+          expect(requests).toEqual(["pane.focus", "pane.focus"]);
+        } else {
+          expect(response?.error).toBeDefined();
+          expect(requests).toHaveLength(
+            invalidation === "lease" || invalidation === "replace" ? 1 : 0,
+          );
+        }
+      } finally {
+        bridge.dispose();
+      }
+    });
+  }
+
+  for (const supersede of [false, true]) {
+    test(`orders focus across endpoint lanes${supersede ? " and drops superseded selections" : ""}`, async () => {
+      const hold = deferred<void>();
+      const requests: string[] = [];
+      let block = false;
+      const socketPath = await startSessionServer({
+        panes: [
+          { paneId: "w1:p1", x: 0, mouseReporting: false },
+          { paneId: "w1:p2", x: 10, mouseReporting: false },
+        ],
+        onRequest: async (method, params) => {
+          if (method !== "pane.focus") return;
+          requests.push(params.pane_id);
+          if (block && requests.length === 1) await hold.promise;
+        },
+      });
+      const { bridge, ws, replies, attach } = creationBridge(socketPath, {
+        lookup: async (id) => (id === "term1" ? "w1:p1" : "w1:p2"),
+      });
+      try {
+        await attach();
+        await bridge.handleTerminalRpc(ws, "attach2", "terminal.attach", {
+          terminal_id: "term2",
+          cols: 8,
+          rows: 3,
+          relay_active: false,
+        });
+        requests.length = 0;
+        block = true;
+        const focus = (id: string, terminalId: string) =>
+          bridge.handleTerminalRpc(ws, id, "terminal.focus", {
+            terminal_id: terminalId,
+          });
+        const first = focus("first", "term1");
+        await settleUntil(() => requests.length === 1);
+        const second = focus("second", "term2");
+        const third = supersede ? focus("third", "term1") : Promise.resolve();
+        await Bun.sleep(20);
+        expect(requests).toEqual(["w1:p1"]);
+        hold.resolve();
+        await Promise.all([first, second, third]);
+        expect(requests).toEqual(["w1:p1", supersede ? "w1:p1" : "w1:p2"]);
+        expect(
+          replies
+            .filter((r) => ["first", "second", "third"].includes(r.id))
+            .every((r) => r.result?.ok),
+        ).toBe(true);
+      } finally {
+        hold.resolve();
+        bridge.dispose();
+      }
+    });
+  }
+});
