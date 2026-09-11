@@ -58,6 +58,7 @@ export interface EndpointSnapshot {
 }
 
 export interface PaneSurfacePaneMeta {
+  contentRevision: number;
   paneId: string;
   rect: { x: number; y: number; width: number; height: number };
   /** Content area inside decorations; crop targets this rect. */
@@ -526,7 +527,7 @@ function readPaneSurfacePanes(r: BinReader): PaneSurfacePaneMeta[] {
   const panes: PaneSurfacePaneMeta[] = new Array(count);
   for (let i = 0; i < count; i++) {
     const paneId = r.string();
-    r.varint(); // content_revision
+    const contentRevision = r.varint();
     const rect = readRect(r);
     const innerRect = readRect(r);
     if (r.bool()) readRect(r); // scrollbar_rect
@@ -544,7 +545,15 @@ function readPaneSurfacePanes(r: BinReader): PaneSurfacePaneMeta[] {
     r.bool(); // alternate_screen_active
     r.varint(); // pixel_width
     r.varint(); // pixel_height
-    panes[i] = { paneId, rect, innerRect, scroll, focused, mouseReporting };
+    panes[i] = {
+      paneId,
+      contentRevision,
+      rect,
+      innerRect,
+      scroll,
+      focused,
+      mouseReporting,
+    };
   }
   return panes;
 }

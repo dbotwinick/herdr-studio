@@ -82,6 +82,7 @@ import {
   macCommandEditingSequence,
   modifiedEnterSequence,
 } from "../terminalKeys";
+import { TerminalHistorySelection } from "../terminalHistorySelection";
 import {
   findTerminalHttpLinks,
   sanitizeTerminalHttpUrl,
@@ -875,6 +876,11 @@ export function TerminalView({
     term.onData((data) => {
       // Replaying a delayed local selection must never synthesize pane input.
       if (composerOpenRef.current || replayingSelection) return;
+      if (historySelection.active) {
+        historySelection.reset();
+        term.clearSelection();
+        endpointPresentation.cancelSelection();
+      }
       const unsuppressedData = imeTextareaFallback.recordXtermData(data);
       if (!unsuppressedData) return;
       const dataAt = performance.now();
@@ -890,15 +896,46 @@ export function TerminalView({
       sendBytes(connectionClient, bytes, terminalId).catch(() => {});
     });
 
-    const endpointPresentation = new TerminalEndpointPresentation(
-      () => term.hasSelection(),
-      (text, parsed) => term.write(colorHttpLinks(text), parsed),
-      () => ({ cols: term.cols, rows: term.rows }),
-    );
+    const endpointPresentation: TerminalEndpointPresentation =
+      new TerminalEndpointPresentation(
+        () => term.hasSelection() || historySelection.active,
+        (text, parsed) => term.write(colorHttpLinks(text), parsed),
+        () => ({ cols: term.cols, rows: term.rows }),
+        {
+          accepts: (frame) => historySelection.accepts(frame),
+          presented: (frame) => historySelection.presented(frame),
+          reset: () => historySelection.reset(),
+        },
+      );
+    const historySelection: TerminalHistorySelection =
+      new TerminalHistorySelection(term, {
+        frame: () => endpointPresentation.displayedFrame,
+        scroll: (direction, lines) =>
+          connectionClient.call("terminal.scroll", {
+            terminal_id: desiredTerminalRef.current,
+            direction,
+            lines,
+            source: "history",
+          }),
+        changed: (message) =>
+          store.notify({ kind: "info", message, autoDismissMs: 8000 }),
+      });
     endpointPresentationRef.current = endpointPresentation;
-    const selectionChange = term.onSelectionChange(() =>
-      endpointPresentation.flush(),
-    );
+    const selectionChange = term.onSelectionChange(() => {
+      if (
+        !endpointPresentation.selectionDrag &&
+        !endpointPresentation.writePending &&
+        !term.hasSelection()
+      )
+        historySelection.reset();
+      endpointPresentation.flush();
+    });
+    const selectionResize = term.onResize(() => {
+      historySelection.reset();
+      if (endpointPresentation.selectionDrag) onSelectionBlur();
+      term.clearSelection();
+      endpointPresentation.cancelSelection();
+    });
     const off = bridge.onTerminal((t) => {
       // A mount owns exactly one connection generation. Drop frames from an
       // inactive connection or a prior terminal attach before touching xterm.
@@ -920,10 +957,15 @@ export function TerminalView({
       setTerminalAttachError("");
       if (typeof t.mouse_reporting === "boolean") {
         term.options.macOptionClickForcesSelection = true;
-        endpointPresentation.update(text, t.mouse_reporting, {
-          cols: t.width,
-          rows: t.height,
-        });
+        endpointPresentation.update(
+          text,
+          t.mouse_reporting,
+          {
+            cols: t.width,
+            rows: t.height,
+          },
+          t.history,
+        );
       } else {
         term.write(colorHttpLinks(text));
       }
@@ -1580,8 +1622,12 @@ export function TerminalView({
     document.addEventListener("paste", onPaste, { capture: true });
 
     const onCopy = (e: ClipboardEvent) => {
-      if (!term.hasSelection() || !e.clipboardData) return;
-      const selectedText = term.getSelection();
+      if (
+        (!term.hasSelection() && !historySelection.active) ||
+        !e.clipboardData
+      )
+        return;
+      const selectedText = historySelection.text ?? term.getSelection();
       if (!selectedText) return;
       e.preventDefault();
       e.stopPropagation();
@@ -1674,6 +1720,7 @@ export function TerminalView({
         return;
       selectionDragGuard.mouseDown(e.button);
       if (e.button !== 0) return;
+      historySelection.reset();
       if (
         endpointPresentation.mouseReporting === undefined &&
         !endpointPresentation.writePending
@@ -1710,6 +1757,17 @@ export function TerminalView({
       }
     };
     const onDeferredMouseMove = (e: MouseEvent) => {
+      if (
+        !endpointPresentation.selectionPending &&
+        historySelection.move(
+          e,
+          endpointPresentation.selectionDrag && !(e.altKey && !applePlatform),
+        )
+      ) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        return;
+      }
       if (!endpointPresentation.selectionPending || deferredUp) return;
       if (e.buttons === 0) {
         // A lost release finalizes at the last held-button move, not this hover.
@@ -1722,6 +1780,8 @@ export function TerminalView({
       e.stopImmediatePropagation();
     };
     const onDocumentMouseUp = (e: MouseEvent) => {
+      if (historySelection.releasingNative) return;
+      historySelection.finish();
       if (endpointPresentation.selectionPending) {
         if (deferredUp) return; // the first release froze this gesture
         deferredUp = e;
@@ -1740,12 +1800,19 @@ export function TerminalView({
       // A new physical gesture anywhere owns document listeners now. Cancel
       // this deferred replay before a sibling terminal can start an app drag.
       // Synthetic selection replay must not cancel another pane's intent.
-      if (!e.isTrusted || !endpointPresentation.selectionPending) return;
+      if (!e.isTrusted) return;
+      if (historySelection.active) {
+        historySelection.finish();
+        selectionDragGuard.reset();
+        endpointPresentation.selectionDrag = false;
+      }
+      if (!endpointPresentation.selectionPending) return;
       deferredMove = deferredUp = null;
       selectionDragGuard.reset();
       endpointPresentation.cancelSelection();
     };
     const onSelectionBlur = () => {
+      historySelection.finish();
       if (endpointPresentation.selectionPending) {
         deferredMove = deferredUp = null;
         selectionDragGuard.reset();
@@ -1799,6 +1866,19 @@ export function TerminalView({
     document.addEventListener("mousemove", onDocumentMouseMove);
 
     const onWheel = (e: WheelEvent) => {
+      const selectionScroll = terminalWheelScroll(
+        e.deltaY,
+        e.deltaMode,
+        term.rows,
+      );
+      if (
+        selectionScroll &&
+        historySelection.wheel(selectionScroll.direction, selectionScroll.lines)
+      ) {
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
       if (endpointPresentation.mouseReporting !== undefined) {
         if (
           term.hasSelection() ||
@@ -1964,6 +2044,7 @@ export function TerminalView({
       terminalEffectDisposed = true;
       off();
       selectionChange.dispose();
+      selectionResize.dispose();
       endpointPresentation.dispose();
       endpointPresentationRef.current = null;
       offClipboard();

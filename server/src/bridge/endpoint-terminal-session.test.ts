@@ -334,6 +334,27 @@ function splitSurface(cols: number, rows: number, count = 2) {
 }
 
 describe("EndpointTerminalSession", () => {
+  test("emits absolute history coordinates with the corresponding pane frame", async () => {
+    const socketPath = await startSessionServer({});
+    const session = new EndpointTerminalSession(
+      socketPath,
+      "terminal",
+      async () => "w1:p1",
+    );
+    const frames: any[] = [];
+    session.on("terminal", (frame) => frames.push(frame));
+    try {
+      await session.connect(8, 3, { cols: 10, rows: 5 });
+      expect(frames.at(-1)).toMatchObject({
+        width: 8,
+        height: 3,
+        history: { revision: 1, top: 100, total: 103, cols: 8, rows: 3 },
+      });
+    } finally {
+      session.close();
+    }
+  });
+
   test.each([
     { cols: 252, rows: 26, count: 3, expected: [249, 26] },
     { cols: 166, rows: 27, count: 2, expected: [166, 26] },

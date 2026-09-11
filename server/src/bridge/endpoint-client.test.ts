@@ -466,6 +466,7 @@ describe("EndpointClient (endpoint generation 1)", () => {
     expect(surfaces[0].panes).toEqual([
       {
         paneId: "w1:p1",
+        contentRevision: 1,
         rect: { x: 0, y: 0, width: 10, height: 5 },
         innerRect: { x: 0, y: 0, width: 10, height: 5 },
         scroll: null,
