@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Scroll terminal history while drag-selecting beyond a pane edge, preserving
+  offscreen selected text when copying.
+
 - Restore Page Up/Down in terminal applications such as nano and add configurable
   terminal copy shortcuts while preserving Ctrl+C as terminal input.
 

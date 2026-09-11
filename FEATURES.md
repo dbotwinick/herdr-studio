@@ -68,7 +68,11 @@ Closed panes are removed from the history automatically.
   apps using pane-local cells. To select browser text instead, use Option-drag
   on macOS or Shift-drag elsewhere; ordinary output needs no modifier. Selection
   pauses visible endpoint output until cleared, then catches up to the latest
-  repaint. Pixel mouse is not supported.
+  repaint. Drag beyond the top or bottom of a pane to scroll while selecting;
+  copying includes the rows that have scrolled offscreen. Releasing the mouse or
+  losing window focus stops scrolling. If terminal output changes during the
+  drag, finish the current selection before scrolling further. Pixel mouse is
+  not supported.
 - Paste multiline text through terminal paste handling.
 - Paste a clipboard image to upload it on the Herdr host and insert the resulting
   path into the terminal. This also works through `--ssh-host`.
