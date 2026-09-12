@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fix copying preview content and file paths when Studio is opened over HTTP.
+
 - Preview SVG and APNG images, render Mermaid files with source headers, and zoom
   diagrams or images independently with Fit and 100% controls.
 
