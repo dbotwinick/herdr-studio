@@ -1,3 +1,4 @@
+import { annotationDraftStorageKey } from "./annotations";
 import { describe, expect, test } from "bun:test";
 import type { Workspace } from "./types";
 import {
@@ -7,6 +8,7 @@ import {
   isWorkspaceInspectorShortcut,
   INSPECTOR_SEPARATOR_SIZE,
   readInspectorPreferences,
+  readResourceFileSelection,
   relativePathWithinCheckout,
   resourceOwnerKey,
   resourceScopeForWorkspace,
@@ -15,6 +17,7 @@ import {
   sameResourceOwner,
   writeInspectorNavigationRatio,
   writeInspectorPreferences,
+  writeResourceFileSelection,
   type WorkspaceInspectorState,
 } from "./workspaceResource";
 
@@ -39,7 +42,7 @@ function workspace(
             repo_root: "/repo",
             checkout_path: checkoutPath,
             is_linked_worktree: checkoutPath !== "/repo",
-            gui_settings_key: settingsKey,
+            gui_settings_key: settingsKey ?? "local:repo-key",
           },
         }
       : {}),
@@ -102,17 +105,128 @@ describe("workspace inspector geometry", () => {
 });
 
 describe("workspace resource scope", () => {
+  test("isolates main and sibling worktrees even with the same repository settings key", () => {
+    const storage = memoryStorage();
+    const main = resourceScopeForWorkspace("local", workspace("main", "/repo"));
+    const auth = resourceScopeForWorkspace(
+      "local",
+      workspace("auth", "/repo/.worktrees/auth"),
+    );
+    const docs = resourceScopeForWorkspace(
+      "local",
+      workspace("docs", "/repo/.worktrees/docs"),
+    );
+    expect(new Set([main, auth, docs].map(resourceStateKey)).size).toBe(3);
+    expect(
+      new Set([main, auth, docs].map(annotationDraftStorageKey)).size,
+    ).toBe(3);
+    writeResourceFileSelection(storage, auth, "auth-only.md");
+    expect(readResourceFileSelection(storage, main)).toBeUndefined();
+    expect(readResourceFileSelection(storage, docs)).toBeUndefined();
+    writeResourceFileSelection(storage, main, "README.md");
+    writeResourceFileSelection(storage, docs, "docs-only.md");
+    expect(readResourceFileSelection(storage, auth)).toBe("auth-only.md");
+    expect(readResourceFileSelection(storage, main)).toBe("README.md");
+    expect(readResourceFileSelection(storage, docs)).toBe("docs-only.md");
+    writeResourceFileSelection(storage, auth, null);
+    expect(readResourceFileSelection(storage, main)).toBe("README.md");
+    expect(readResourceFileSelection(storage, docs)).toBe("docs-only.md");
+    writeInspectorPreferences(storage, {
+      scope: auth,
+      open: true,
+      view: "changes",
+      dock: "bottom",
+      size: 410,
+      expanded: false,
+    });
+    expect(readInspectorPreferences(storage, main)).toMatchObject({
+      view: "files",
+      dock: "right",
+    });
+    expect(readInspectorPreferences(storage, docs)).toMatchObject({
+      view: "files",
+      dock: "right",
+    });
+  });
+
+  test("does not rebind a closed worktree to a sibling or a reused workspace id", () => {
+    const original = workspace("auth", "/repo/.worktrees/auth");
+    const scope = resourceScopeForWorkspace("local", original);
+    const main = workspace("main", "/repo");
+    const reused = workspace("auth", "/repo/.worktrees/docs");
+    expect(resolveWorkspaceForScope(scope, [main, reused])).toBeUndefined();
+    const reopened = workspace("reopened", "/repo/.worktrees/auth/");
+    expect(resolveWorkspaceForScope(scope, [main, reused, reopened])).toBe(
+      reopened,
+    );
+  });
+
+  test("ignores repository settings enrichment and normalizes checkout separators", () => {
+    const first = workspace("first", "C:\\repo\\wt\\", "settings-before");
+    const second = workspace("second", "C:/repo/wt/", "settings-after");
+    expect(
+      sameResourceOwner(
+        resourceScopeForWorkspace("local", first),
+        resourceScopeForWorkspace("local", second),
+      ),
+    ).toBe(true);
+    second.worktree!.gui_settings_key = undefined;
+    expect(checkoutKeyForWorkspace(first)).toBe(
+      checkoutKeyForWorkspace(second),
+    );
+  });
+
+  test("encodes repository and checkout paths without delimiter collisions", () => {
+    const first = workspace("first", "/wt");
+    first.worktree!.repo_key = "repo:x";
+    const second = workspace("second", "x:/wt");
+    second.worktree!.repo_key = "repo";
+    expect(checkoutKeyForWorkspace(first)).not.toBe(
+      checkoutKeyForWorkspace(second),
+    );
+  });
+
+  test("does not restore ambiguous legacy repository-wide state", () => {
+    const storage = memoryStorage();
+    const scope = resourceScopeForWorkspace(
+      "legacy-default",
+      workspace("auth", "/repo/.worktrees/auth"),
+    );
+    storage.setItem(
+      "workspaceInspectorFile:checkout:local:repo-key",
+      "sibling-only.md",
+    );
+    storage.setItem(
+      "workspaceInspector:checkout:local:repo-key",
+      JSON.stringify({ dock: "bottom", view: "changes" }),
+    );
+    expect(readResourceFileSelection(storage, scope)).toBeUndefined();
+    expect(readInspectorPreferences(storage, scope)).toMatchObject({
+      dock: "right",
+      view: "files",
+    });
+    expect(
+      storage.getItem("workspaceInspectorFile:checkout:local:repo-key"),
+    ).toBe("sibling-only.md");
+  });
+
   test("uses stable checkout identity instead of a runtime workspace id", () => {
     const first = workspace("w1", "/repo/.worktrees/auth/", "auth-settings");
     const reopened = workspace("w2", "/repo/.worktrees/auth", "auth-settings");
     const main = workspace("main", "/repo");
 
-    expect(checkoutKeyForWorkspace(first)).toBe("auth-settings");
-    expect(checkoutKeyForWorkspace(main)).toBe("repo-key:/repo");
+    expect(checkoutKeyForWorkspace(first)).toBe(
+      JSON.stringify(["repo-key", "/repo/.worktrees/auth"]),
+    );
+    expect(checkoutKeyForWorkspace(main)).toBe(
+      JSON.stringify(["repo-key", "/repo"]),
+    );
 
     const firstScope = resourceScopeForWorkspace("local", first);
     const reopenedScope = resourceScopeForWorkspace("local", reopened);
-    expect(resourceOwnerKey(firstScope)).toBe("checkout:auth-settings");
+    expect(resourceOwnerKey(firstScope)).toBe(
+      `checkout:${JSON.stringify(["repo-key", "/repo/.worktrees/auth"])}`,
+    );
     expect(sameResourceOwner(firstScope, reopenedScope)).toBe(true);
     expect(resolveWorkspaceForScope(firstScope, [reopened])).toBe(reopened);
   });
