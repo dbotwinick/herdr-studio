@@ -203,6 +203,33 @@ describe("Herdr activity metadata", () => {
     ).toBe(0);
   });
 
+  test("preserves completion recency when acknowledging Done races the two snapshots", () => {
+    for (const [paneStatus, agentStatus] of [
+      ["idle", "done"],
+      ["done", "idle"],
+    ]) {
+      const pane = { ...activityPane, agent_status: paneStatus };
+      const result = {
+        agents: [{ ...pane, agent_status: agentStatus, state_change_seq: 42 }],
+      };
+      const merged = withAgentActivity([pane], result)[0]!;
+      expect(merged.state_change_seq).toBe(42);
+      expect(merged.agent_status).toBe(paneStatus);
+      if (paneStatus === "idle") {
+        const older = {
+          ...activityPane,
+          pane_id: "older",
+          state_change_seq: 10,
+        };
+        expect(
+          sortAgentPanes([older, merged], [], "attention").map(
+            (pane) => pane.pane_id,
+          ),
+        ).toEqual(["p1", "older"]);
+      }
+    }
+  });
+
   test("does not join activity across terminal, agent, or status changes", () => {
     for (const mismatch of [
       { terminal_id: "replacement" },

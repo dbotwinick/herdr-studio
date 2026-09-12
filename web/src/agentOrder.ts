@@ -143,12 +143,17 @@ export function withAgentActivity(
   }
   return panes.map((pane) => {
     const agent = byPane.get(pane.pane_id);
-    // The two snapshots can straddle a replacement or a state transition.
+    // Done and Idle share Herdr's underlying Idle state and sequence; only
+    // the seen flag changes. The list calls can straddle an acknowledgement.
+    const sameCompletedState =
+      (pane.agent_status === "idle" || pane.agent_status === "done") &&
+      (agent?.agent_status === "idle" || agent?.agent_status === "done");
+    // Still reject metadata from a replacement or an actual state transition.
     if (
       !agent ||
       agent.terminal_id !== pane.terminal_id ||
       agent.agent !== pane.agent ||
-      agent.agent_status !== pane.agent_status
+      (agent.agent_status !== pane.agent_status && !sameCompletedState)
     )
       return pane;
     return { ...pane, state_change_seq: agent.state_change_seq as number };

@@ -2,7 +2,8 @@
 
 ## Unreleased
 
-- Order idle agents by their most recent Herdr state change in Attention first.
+- Order idle agents by their most recent Herdr state change in Attention first,
+  preserving recency when a completed agent is acknowledged.
 
 - Fix copying preview content and file paths when Studio is opened over HTTP.
 
