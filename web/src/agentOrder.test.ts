@@ -270,3 +270,63 @@ describe("Herdr activity metadata", () => {
     }
   });
 });
+
+describe("session activity ordering", () => {
+  test("puts recently used idle agents above old agents with newer status sequences", () => {
+    const panes = [
+      {
+        ...activityPane,
+        pane_id: "stockpyl4",
+        state_change_seq: 482,
+        last_activity_at: 1000,
+      },
+      {
+        ...activityPane,
+        pane_id: "backend",
+        state_change_seq: 471,
+        last_activity_at: 2000,
+      },
+      {
+        ...activityPane,
+        pane_id: "superadmin",
+        state_change_seq: 474,
+        last_activity_at: 3000,
+      },
+      { ...activityPane, pane_id: "missing", state_change_seq: 999 },
+      {
+        ...activityPane,
+        pane_id: "working",
+        agent_status: "working",
+        last_activity_at: 500,
+      },
+    ];
+    expect(
+      sortAgentPanes(panes, [], "attention").map((p) => p.pane_id),
+    ).toEqual(["working", "superadmin", "backend", "stockpyl4", "missing"]);
+    expect(sortAgentPanes(panes, ["stockpyl4"], "manual")).toEqual(panes);
+    expect(sortAgentPanes(panes, [], "workspace")).toEqual(panes);
+  });
+
+  test("retains timestamps across Done/Idle acknowledgements even without a sequence", () => {
+    const merged = withAgentActivity([activityPane], {
+      agents: [
+        { ...activityPane, agent_status: "done", last_activity_at: 1234 },
+      ],
+    });
+    expect(merged[0]?.last_activity_at).toBe(1234);
+    expect(merged[0]?.agent_status).toBe("idle");
+    expect(merged[0]).not.toHaveProperty("state_change_seq");
+  });
+
+  test("rejects invalid activity values independently of valid sequence values", () => {
+    for (const time of [undefined, null, "1234", 0, -1, NaN, Infinity]) {
+      const merged = withAgentActivity([activityPane], {
+        agents: [
+          { ...activityPane, state_change_seq: 42, last_activity_at: time },
+        ],
+      });
+      expect(merged[0]?.state_change_seq).toBe(42);
+      expect(merged[0]).not.toHaveProperty("last_activity_at");
+    }
+  });
+});

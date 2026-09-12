@@ -1569,6 +1569,7 @@ describe("agent activity refresh", () => {
     const originalConnection = bridge.connection;
     const snapshot = partitionState();
     let sequence = 42;
+    let activity = 1234;
     let unavailable = false;
     bridge.connection = (() => ({
       connectionId: "alpha",
@@ -1587,6 +1588,7 @@ describe("agent activity refresh", () => {
             agents: snapshot.panes.map((pane) => ({
               ...pane,
               state_change_seq: sequence,
+              last_activity_at: activity,
             })),
           };
         }
@@ -1598,12 +1600,18 @@ describe("agent activity refresh", () => {
       __storeTesting.replaceState(snapshot);
       await store.refresh();
       expect(store.get().panes[0]?.state_change_seq).toBe(42);
+      expect(store.get().panes[0]?.last_activity_at).toBe(1234);
       __storeTesting.replaceState(snapshot); // Fresh browser snapshot has no activity history.
       await store.refresh();
       expect(store.get().panes[0]?.state_change_seq).toBe(42);
+      expect(store.get().panes[0]?.last_activity_at).toBe(1234);
       sequence = 2; // Herdr restarted: accept its new sequence rather than a cached maximum.
       await store.refresh();
       expect(store.get().panes[0]?.state_change_seq).toBe(2);
+      expect(store.get().panes[0]?.last_activity_at).toBe(1234);
+      activity = 2345;
+      await store.refresh();
+      expect(store.get().panes[0]?.last_activity_at).toBe(2345);
       unavailable = true;
       await store.refresh();
       expect(store.get().error).toBeNull();

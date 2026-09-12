@@ -130,9 +130,11 @@ panel.
 - Keep agents nested under their workspace, or choose **Agents: Separate** at the
   bottom of the Workspaces panel for a dedicated panel. The separate panel
   defaults to **Attention first**: blocked, done, working, idle, then unknown.
-  Idle agents with more recent Herdr state changes come first. This ordering
-  survives browser refreshes; the sequence resets when Herdr restarts. Ties keep
-  the existing order; agents without recency data follow those with it.
+  Idle agents with more recently updated session files come first. The bridge
+  reads file timestamps, so recency survives browser and server restarts without
+  browser activity tracking. Agents with unavailable transcripts follow those
+  with timestamps and fall back to Herdr's state-change sequence; equal values
+  keep the existing order.
   Use the Sort and Group icons beside **Agents** to choose an order or grouping.
   Choose workspace order or manual order; manual order with no grouping supports
   drag-to-reorder. Group by status, workspace, or agent type and collapse groups.
