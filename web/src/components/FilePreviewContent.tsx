@@ -33,6 +33,7 @@ import {
   type AnnotationComposerDraft,
 } from "./AnnotationComposerPopover";
 import { MermaidDiagram } from "./MermaidDiagram";
+import { ImagePreview } from "./ImagePreview";
 import {
   handlePreviewEditorCopy,
   isEditablePreviewTarget,
@@ -443,7 +444,31 @@ export function FilePreviewContent({
                 Copy
               </button>
             ) : null}
-            {!showingChanges && hasRichPreview ? (
+            {!showingChanges && hasMermaidPreview ? (
+              <div
+                className="file-preview-mode-options"
+                role="group"
+                aria-label="Mermaid preview mode"
+              >
+                <button
+                  type="button"
+                  className="file-preview-mode-toggle"
+                  aria-pressed={previewMode === "rendered"}
+                  onClick={() => setPreviewMode("rendered")}
+                >
+                  Diagram
+                </button>
+                <button
+                  type="button"
+                  className="file-preview-mode-toggle"
+                  aria-pressed={previewMode === "raw"}
+                  onClick={() => setPreviewMode("raw")}
+                >
+                  Source
+                </button>
+              </div>
+            ) : null}
+            {!showingChanges && hasMarkdownPreview ? (
               <button
                 type="button"
                 className="file-preview-mode-toggle"
@@ -504,13 +529,11 @@ export function FilePreviewContent({
             <div className="file-preview-state is-error">{error}</div>
           ) : null}
           {!loading && !error && preview?.image_data_url ? (
-            <div className="file-preview-image-wrap">
-              <img
-                className="file-preview-image"
-                src={preview.image_data_url}
-                alt={entry?.name ?? preview.path}
-              />
-            </div>
+            <ImagePreview
+              key={previewPath}
+              src={preview.image_data_url}
+              name={entry?.name ?? preview.path}
+            />
           ) : null}
           {!loading &&
           !error &&
@@ -564,6 +587,7 @@ export function FilePreviewContent({
           ) : null}
           {!loading && !error && hasMermaidPreview && renderRichPreview ? (
             <MermaidDiagram
+              key={previewPath}
               code={previewText}
               className="file-preview-mermaid"
             />

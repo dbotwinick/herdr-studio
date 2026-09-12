@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Preview SVG and APNG images, render Mermaid files with source headers, and zoom
+  diagrams or images independently with Fit and 100% controls.
+
 - Open complete terminal file paths across wrapped rows, including indented
   continuations in agent output, from either part of the link.
 

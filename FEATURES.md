@@ -246,14 +246,18 @@ Lifecycle to manage saved per-checkout settings.
 - Preview text with line numbers, syntax highlighting, and `Cmd/Ctrl+F` search.
 - Render Markdown with a Raw/Rendered toggle, including Mermaid code fences
   rendered as diagrams.
-- Render `.mmd`/`.mermaid` Mermaid sources as diagrams with a Raw/Rendered
-  toggle.
+- Open `.mmd`/`.mermaid` files in Diagram mode with an explicit Source view.
+  Standalone sources may include leading comments, document headers, or
+  a Mermaid code fence. Each diagram has independent zoom, Fit, and 100% controls;
+  scroll to pan or use Ctrl/Cmd + wheel to zoom.
 - Follow relative file links in Markdown previews within the current Inspector.
   Links resolve from the document's directory; leading `/` resolves from the
   workspace root. Heading fragments scroll within the destination document.
   External links continue to open in a new browser tab.
-- Preview common images, PDFs, and workspace-local Markdown images; unsupported
-  binary files remain download-only.
+- Preview SVG, PNG/APNG, JPEG, GIF, WebP, BMP, ICO, and AVIF images with independent
+  zoom and fit controls, plus PDFs and workspace-local Markdown images.
+  Unsupported binary files remain download-only; image decoding depends on the
+  browser.
 - Drag files onto the workspace root or a directory to upload them.
 - Download files directly or directories as workspace-scoped `.tar.gz`
   archives.
