@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Open complete terminal file paths across wrapped rows, including indented
+  continuations in agent output, from either part of the link.
+
 - Scroll terminal history while drag-selecting beyond a pane edge, preserving
   offscreen selected text when copying.
 

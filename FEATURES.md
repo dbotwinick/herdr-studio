@@ -81,7 +81,9 @@ Closed panes are removed from the history automatically.
   proven originating-pane ownership; see [clipboard compatibility](docs/DEPLOYMENT.md#herdr-compatibility).
 - `Cmd/Ctrl`-click HTTP(S) links to open them safely in a new tab.
 - `Cmd/Ctrl`-click workspace-relative or absolute file paths in terminal output
-  to preview text, Markdown, or images without leaving the terminal.
+  to preview text, Markdown, or images without leaving the terminal. Wrapped
+  paths remain one link, including indented continuations in terminal application
+  output when the complete path resolves to an existing file.
 - Preserve IME composition and rapid CJK punctuation input.
 
 ## Workspace Inspector
