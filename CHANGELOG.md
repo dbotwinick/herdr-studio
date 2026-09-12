@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Keep the Actions menu on screen and terminal selection aligned with the mouse
+  when changing the interface text size.
+
 ## 0.6.2 - 2026-09-11
 
 - Reload open tabs once when an update removes their cached code chunks, instead

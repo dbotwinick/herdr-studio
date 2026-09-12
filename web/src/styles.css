@@ -741,9 +741,9 @@ textarea:focus {
 .connection-switcher-popover {
   z-index: 5000;
   width: min(380px, calc(100vw - 24px));
-  max-height: var(
-    --radix-popover-content-available-height,
-    calc(100dvh - 24px)
+  max-height: calc(
+    var(--radix-popover-content-available-height, calc(100dvh - 24px)) /
+    var(--ui-scale, 1)
   );
   display: flex;
   flex-direction: column;
@@ -946,7 +946,14 @@ textarea:focus {
   gap: 6px;
   white-space: nowrap;
 }
+/* Radix positions its portal in viewport pixels. Cancel page zoom around
+   that positioning wrapper, then restore it only for the menu content. */
+.popover-portal {
+  zoom: calc(1 / var(--ui-scale, 1));
+}
 .popover-content {
+  zoom: var(--ui-scale, 1);
+  max-width: calc(100vw / var(--ui-scale, 1) - 16px);
   z-index: 70;
   border: 1px solid var(--shell-border);
   border-radius: 8px;
@@ -955,7 +962,9 @@ textarea:focus {
   box-shadow: var(--shadow-lg);
 }
 .command-popover {
-  width: min(560px, calc(100vw - 24px));
+  /* The scaled trigger can sit less than sideOffset above the topbar edge. */
+  z-index: 130;
+  width: min(560px, calc(100vw / var(--ui-scale, 1) - 24px));
   padding: 0;
   overflow: hidden;
 }
@@ -976,7 +985,15 @@ textarea:focus {
   outline: none;
 }
 .command-list {
-  max-height: min(540px, calc(100vh - 132px));
+  max-height: min(
+    540px,
+    calc(100dvh / var(--ui-scale, 1) - 132px),
+    calc(
+      var(--radix-popover-content-available-height) /
+      var(--ui-scale, 1) -
+      54px
+    )
+  );
   overflow: auto;
   padding: 6px;
 }
@@ -3646,7 +3663,10 @@ textarea:focus {
 .mobile-shortcut-key-popover {
   z-index: 2100;
   width: min(280px, calc(100vw - 24px));
-  max-height: min(390px, var(--radix-popover-content-available-height));
+  max-height: min(
+    390px,
+    calc(var(--radix-popover-content-available-height) / var(--ui-scale, 1))
+  );
   overflow: hidden;
   padding: 0;
   border-radius: 10px;
@@ -3657,7 +3677,15 @@ textarea:focus {
   font-size: 12px;
 }
 .mobile-shortcut-key-command .command-list {
-  max-height: min(330px, calc(100dvh - 108px));
+  max-height: min(
+    330px,
+    calc(100dvh / var(--ui-scale, 1) - 108px),
+    calc(
+      var(--radix-popover-content-available-height) /
+      var(--ui-scale, 1) -
+      50px
+    )
+  );
   padding: 5px;
 }
 .mobile-shortcut-key-command .command-group {
@@ -7570,6 +7598,8 @@ textarea:focus {
   display: flex;
 }
 .terminal-view {
+  /* xterm measures cells without CSS zoom; scale its font in TerminalView. */
+  zoom: calc(1 / var(--ui-scale, 1));
   flex: 1 1 auto;
   width: 100%;
   min-width: 0;
@@ -8858,10 +8888,18 @@ textarea:focus {
     display: none;
   }
   .command-popover {
-    width: calc(100vw - 16px);
+    width: calc(100vw / var(--ui-scale, 1) - 16px);
   }
   .command-list {
-    max-height: min(70dvh, 520px);
+    max-height: min(
+      calc(70dvh / var(--ui-scale, 1)),
+      520px,
+      calc(
+        var(--radix-popover-content-available-height) /
+        var(--ui-scale, 1) -
+        54px
+      )
+    );
   }
   .topbar-time {
     display: none;

@@ -1,3 +1,4 @@
+import { terminalFontOptions } from "../appearance";
 import {
   ClipboardAddon,
   type ClipboardSelectionType,
@@ -156,13 +157,11 @@ const TERMINAL_EVICTION_WINDOW_MS = 60_000;
 const TERMINAL_EVICTION_MAX_RETRIES = 3;
 const TERMINAL_TOUCH_TAP_SLOP_PX = 8;
 
-function terminalDensity() {
+function terminalDensity(uiScale: number) {
   const compact =
     typeof window !== "undefined" &&
     window.matchMedia("(max-width: 768px)").matches;
-  return compact
-    ? { fontSize: 12, lineHeight: 1.12 }
-    : { fontSize: 13, lineHeight: 1.18 };
+  return terminalFontOptions(compact, uiScale);
 }
 
 function isApplePlatform() {
@@ -420,6 +419,7 @@ export type TerminalWorkspaceFileRequest = {
 export function TerminalView({
   paneId,
   terminalTheme,
+  uiScale,
   showMobileKeys = true,
   mobileShortcuts = defaultMobileTerminalShortcutRows(),
   mobileSideShortcuts = defaultMobileTerminalSideShortcuts(),
@@ -431,6 +431,7 @@ export function TerminalView({
 }: {
   paneId?: string;
   terminalTheme: ITheme;
+  uiScale: number;
   showMobileKeys?: boolean;
   mobileShortcuts?: MobileTerminalShortcutRows;
   mobileSideShortcuts?: MobileTerminalSideShortcuts;
@@ -525,6 +526,7 @@ export function TerminalView({
   const [termInstance, setTermInstance] = useState<Terminal | null>(null);
   // Theme changes update xterm in place without recreating the terminal.
   const terminalThemeRef = useRef(terminalTheme);
+  const uiScaleRef = useRef(uiScale);
   const fitRef = useRef<FitAddon | null>(null);
   const attachedRef = useRef<string | null>(null);
   const attachingRef = useRef<string | null>(null);
@@ -791,7 +793,7 @@ export function TerminalView({
       cursorBlink: true,
       disableStdin: composerOpenRef.current,
       fontFamily: FONT_FAMILY,
-      ...terminalDensity(),
+      ...terminalDensity(uiScaleRef.current),
       theme: terminalThemeRef.current,
       allowProposedApi: true,
       linkHandler: {
@@ -1023,7 +1025,7 @@ export function TerminalView({
 
     const densityQuery = window.matchMedia("(max-width: 768px)");
     const applyDensity = () => {
-      term.options = terminalDensity();
+      term.options = terminalDensity(uiScaleRef.current);
       const size = fitVisibleTerminal();
       if (size) resizeSync.sendNow(size);
     };
@@ -2250,6 +2252,14 @@ export function TerminalView({
     connectionClient,
     termInstance,
   ]);
+
+  useEffect(() => {
+    uiScaleRef.current = uiScale;
+    if (!termInstance) return;
+    termInstance.options = terminalDensity(uiScale);
+    const size = fitVisibleTerminal();
+    if (size) resizeSyncRef.current?.sendNow(size);
+  }, [uiScale, termInstance, fitVisibleTerminal]);
 
   useEffect(() => {
     terminalThemeRef.current = terminalTheme;
