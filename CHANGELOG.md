@@ -29,6 +29,10 @@
 - Keep the Actions menu on screen and terminal selection aligned with the mouse
   when changing the interface text size.
 
+- Keep Inspector previews and state separate between the main checkout and linked
+  worktrees. Previously shared Inspector selections, preferences, and review
+  drafts start fresh per checkout; original browser storage is retained.
+
 ## 0.6.2 - 2026-09-11
 
 - Reload open tabs once when an update removes their cached code chunks, instead
