@@ -49,6 +49,7 @@ import {
   groupOrderedAgentPanes,
   parseAgentListPreferences,
   sortAgentPanes,
+  withAgentActivity,
 } from "./agentOrder";
 
 const agents = [
@@ -150,5 +151,95 @@ describe("agent attention and grouping", () => {
     expect(
       parseAgentListPreferences('{"sort":"manual","grouping":"workspace"}'),
     ).toEqual({ sort: "manual", grouping: "workspace" });
+  });
+});
+
+describe("Herdr activity ordering", () => {
+  test("ranks only idle peers by latest state change, with stable ties", () => {
+    const panes = [
+      { pane_id: "old", agent_status: "idle", state_change_seq: 10 },
+      { pane_id: "new", agent_status: "idle", state_change_seq: 30 },
+      { pane_id: "working", agent_status: "working", state_change_seq: 1 },
+      { pane_id: "tie", agent_status: "IDLE", state_change_seq: 30 },
+      { pane_id: "missing", agent_status: "idle" },
+      { pane_id: "blocked", agent_status: "blocked", state_change_seq: 1 },
+    ];
+    expect(
+      sortAgentPanes(panes, ["old", "tie"], "attention").map((p) => p.pane_id),
+    ).toEqual(["blocked", "working", "tie", "new", "old", "missing"]);
+    expect(
+      sortAgentPanes(panes, ["old", "tie"], "manual").map((p) => p.pane_id),
+    ).toEqual(["old", "tie", "new", "working", "missing", "blocked"]);
+    expect(sortAgentPanes(panes, [], "workspace")).toEqual(panes);
+  });
+});
+
+const activityPane = {
+  pane_id: "p1",
+  terminal_id: "t1",
+  workspace_id: "w1",
+  tab_id: "tab1",
+  focused: false,
+  agent: "codex",
+  agent_status: "idle",
+  revision: 1,
+};
+
+describe("Herdr activity metadata", () => {
+  test("reconstructs recency from fresh snapshots without mutating pane data", () => {
+    const result = { agents: [{ ...activityPane, state_change_seq: 42 }] };
+    expect(withAgentActivity([activityPane], result)[0]?.state_change_seq).toBe(
+      42,
+    );
+    expect(
+      withAgentActivity([structuredClone(activityPane)], result)[0]
+        ?.state_change_seq,
+    ).toBe(42);
+    expect(activityPane).not.toHaveProperty("state_change_seq");
+    expect(
+      withAgentActivity([activityPane], {
+        agents: [{ ...activityPane, state_change_seq: 0 }],
+      })[0]?.state_change_seq,
+    ).toBe(0);
+  });
+
+  test("does not join activity across terminal, agent, or status changes", () => {
+    for (const mismatch of [
+      { terminal_id: "replacement" },
+      { agent: "claude" },
+      { agent_status: "working" },
+      { pane_id: "other" },
+    ]) {
+      const result = {
+        agents: [{ ...activityPane, state_change_seq: 42, ...mismatch }],
+      };
+      expect(withAgentActivity([activityPane], result)[0]).toBe(activityPane);
+    }
+  });
+
+  test("tolerates missing metadata and rejects invalid sequence numbers", () => {
+    for (const result of [
+      null,
+      {},
+      { agents: {} },
+      { agents: [null, 42, {}] },
+    ]) {
+      expect(withAgentActivity([activityPane], result)).toEqual([activityPane]);
+    }
+    for (const state_change_seq of [
+      undefined,
+      -1,
+      1.5,
+      "42",
+      NaN,
+      Infinity,
+      Number.MAX_SAFE_INTEGER + 1,
+    ]) {
+      expect(
+        withAgentActivity([activityPane], {
+          agents: [{ ...activityPane, state_change_seq }],
+        }),
+      ).toEqual([activityPane]);
+    }
   });
 });

@@ -1,3 +1,5 @@
+import type { Pane } from "./types";
+
 export const AGENT_ORDER_STORAGE_KEY = "agentOrder.v1";
 
 const MAX_AGENT_ORDER_ENTRIES = 512;
@@ -114,8 +116,51 @@ export function agentAttentionPriority(status: string): number {
   return index < 0 ? ATTENTION_STATUSES.length - 1 : index;
 }
 
+/** Join fresh Herdr agent metadata; no activity history is tracked in Studio. */
+export function withAgentActivity(
+  panes: readonly Pane[],
+  result: unknown,
+): Pane[] {
+  const agents =
+    result && typeof result === "object" && "agents" in result
+      ? result.agents
+      : null;
+  if (!Array.isArray(agents)) return [...panes];
+  const byPane = new Map<string, Record<string, unknown>>();
+  for (const agent of agents) {
+    if (
+      !agent ||
+      typeof agent !== "object" ||
+      typeof agent.pane_id !== "string"
+    )
+      continue;
+    if (
+      !Number.isSafeInteger(agent.state_change_seq) ||
+      agent.state_change_seq < 0
+    )
+      continue;
+    byPane.set(agent.pane_id, agent);
+  }
+  return panes.map((pane) => {
+    const agent = byPane.get(pane.pane_id);
+    // The two snapshots can straddle a replacement or a state transition.
+    if (
+      !agent ||
+      agent.terminal_id !== pane.terminal_id ||
+      agent.agent !== pane.agent ||
+      agent.agent_status !== pane.agent_status
+    )
+      return pane;
+    return { ...pane, state_change_seq: agent.state_change_seq as number };
+  });
+}
+
 export function sortAgentPanes<
-  T extends { pane_id: string; agent_status: string },
+  T extends {
+    pane_id: string;
+    agent_status: string;
+    state_change_seq?: number;
+  },
 >(
   panes: readonly T[],
   preferredPaneIds: readonly string[],
@@ -124,11 +169,14 @@ export function sortAgentPanes<
   if (sort === "workspace") return [...panes];
   const ordered = orderAgentPanes(panes, preferredPaneIds);
   return sort === "attention"
-    ? ordered.sort(
-        (left, right) =>
+    ? ordered.sort((left, right) => {
+        const priority =
           agentAttentionPriority(left.agent_status) -
-          agentAttentionPriority(right.agent_status),
-      )
+          agentAttentionPriority(right.agent_status);
+        if (priority || left.agent_status.toLowerCase() !== "idle")
+          return priority;
+        return (right.state_change_seq ?? 0) - (left.state_change_seq ?? 0);
+      })
     : ordered;
 }
 

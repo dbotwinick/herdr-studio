@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Order idle agents by their most recent Herdr state change in Attention first.
+
 - Fix copying preview content and file paths when Studio is opened over HTTP.
 
 - Preview SVG and APNG images, render Mermaid files with source headers, and zoom

@@ -83,6 +83,8 @@ export interface Pane {
   foreground_cwd?: string;
   agent?: string;
   agent_status: string;
+  /** Herdr agent.list state-change sequence, scoped to this server lifetime. */
+  state_change_seq?: number;
   revision: number;
 }
 
