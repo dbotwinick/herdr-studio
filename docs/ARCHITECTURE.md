@@ -28,6 +28,12 @@ server-rendered output rather than reconstructing a PTY in the bridge.
 
 ## Terminal endpoints
 
+Interface text size uses root CSS zoom. Terminal surfaces cancel that zoom and
+scale xterm's font size directly, so cell measurements, selection, mouse input,
+and IME positioning stay in viewport CSS pixels. Radix popovers also cancel zoom
+around their positioning wrapper and reapply it to the content; their viewport
+limits convert back to content units.
+
 Backend selection uses the verified protocol allowlist, not browser version
 inference. See [Herdr compatibility](./DEPLOYMENT.md#herdr-compatibility) for
 versions, fallback configuration, and clipboard limitations.

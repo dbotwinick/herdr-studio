@@ -4,6 +4,8 @@
 
 - Keep the cursor on the selected terminal pane when switching splits, and preserve
   cursor updates and hide/show transitions across incremental repaints.
+- Keep the Actions menu on screen and terminal selection aligned with the mouse
+  when changing the interface text size.
 
 ## 0.6.2 - 2026-09-11
 
