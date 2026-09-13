@@ -8,6 +8,9 @@
   when changing the interface text size.
 - Scroll terminal history while drag-selecting beyond a pane edge, preserving
   offscreen selected text when copying.
+- Add attention-first agent ordering and collapsible status, workspace, and agent
+  type groups in the separate Agents panel, plus named tabs in both nested and
+  separate agent rows.
 
 ## 0.6.2 - 2026-09-11
 
