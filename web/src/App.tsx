@@ -1672,6 +1672,8 @@ export default function App() {
     (stateKey: string, selection: ActiveFilePreviewSelection) => {
       const current = inspectorStateRef.current;
       if (!current || resourceStateKey(current.scope) !== stateKey) return;
+      // A selection from the explorer supersedes any pending header refresh.
+      fileQuickOpenRequestRef.current += 1;
       setActiveFilePreview(selection);
     },
     [],
@@ -3000,6 +3002,13 @@ export default function App() {
                         selection,
                       )
                     }
+                    onRefreshFile={() => {
+                      if (inspectorWorkspace && activeFilePreview.entry)
+                        loadInspectorFilePreview(
+                          inspectorWorkspace.workspace_id,
+                          activeFilePreview.entry,
+                        );
+                    }}
                     onOpenDiffFile={openDiffFileInExplorer}
                     onOpenDocument={(path) => {
                       if (inspectorWorkspace)

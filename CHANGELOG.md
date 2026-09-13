@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Refresh the current file directly from the preview header.
+
 - Search loaded files with glob patterns and opt into read-only filesystem
   browsing to preview reference materials outside the workspace.
 

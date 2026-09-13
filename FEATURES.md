@@ -256,6 +256,9 @@ Lifecycle to manage saved per-checkout settings.
 - See Git status badges on changed files and directories; Git-ignored files
   are dimmed.
 - Preview text with line numbers, syntax highlighting, and `Cmd/Ctrl+F` search.
+  Use **Refresh preview** in the preview header to reload the current file from
+  disk without reopening it; the selected Raw/Rendered or Diagram/Source mode is
+  preserved.
 - Render Markdown with a Raw/Rendered toggle, including Mermaid code fences
   rendered as diagrams.
 - Open `.mmd`/`.mermaid` files in Diagram mode with an explicit Source view.

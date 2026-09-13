@@ -883,7 +883,7 @@ function FileExplorerContent({
     updateCache({ expanded: next });
   };
 
-  const loadPreview = async (entry: FileExplorerEntry) => {
+  const loadPreview = async (entry: FileExplorerEntry, refresh = false) => {
     if (!workspace?.workspace_id || entry.type === "directory") return;
     onActiveDiffEntriesChange?.(
       gitStatusMaps.fileStatuses.get(entry.path)?.entries ?? [],
@@ -894,7 +894,7 @@ function FileExplorerContent({
     previewRequestKeyRef.current = requestKey;
     setPreviewEntry(entry);
     setPreviewError(null);
-    const cached = readCachedPreview(key);
+    const cached = refresh ? null : readCachedPreview(key);
     if (cached) {
       setPreview(cached);
       setPreviewLoading(false);
@@ -912,7 +912,7 @@ function FileExplorerContent({
     }
     try {
       const next = await requestFilePreview(workspaceId, entry.path, {
-        refresh: Boolean(cached),
+        refresh: refresh || Boolean(cached),
         client: connectionClient,
       });
       if (
@@ -1731,6 +1731,9 @@ function FileExplorerContent({
               preview={preview}
               loading={previewLoading}
               error={previewError}
+              onRefresh={() => {
+                if (previewEntry) void loadPreview(previewEntry, true);
+              }}
               onOpenFile={(path) =>
                 void loadPreview({
                   name: path.split("/").pop() ?? path,
