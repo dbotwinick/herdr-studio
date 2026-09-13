@@ -104,7 +104,8 @@ export class EndpointTerminalSession extends EventEmitter {
       }
       this.paneId = paneId;
       // Focus scopes this shell's surface to the pane's tab; per-client
-      // focus in Herdr 0.9.0 keeps this from moving other clients.
+      // tab navigation leaves other clients on their own tabs. Same-tab
+      // pane focus remains shared and determines which pane has a cursor.
       await this.enqueueCommand(() =>
         this.client.callEndpoint("pane.focus", { pane_id: paneId }),
       );
@@ -156,6 +157,15 @@ export class EndpointTerminalSession extends EventEmitter {
     const task = this.commandChain.then(bounded, bounded);
     this.commandChain = task.catch(() => undefined);
     return task;
+  }
+
+  /** Select the cursor owner using this shell's scoped endpoint lane. */
+  focus(isCurrent: () => boolean): Promise<void> {
+    return this.enqueueCommand(async () => {
+      if (!isCurrent()) return;
+      if (!this.paneId) throw new Error("Endpoint terminal is not ready");
+      await this.client.callEndpoint("pane.focus", { pane_id: this.paneId });
+    });
   }
 
   /** Reuse the attached shell/clipboard lane; never refocus it for creation. */
