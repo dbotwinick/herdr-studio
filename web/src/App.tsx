@@ -167,6 +167,7 @@ const LazyTerminalView = lazyWithReload("terminal-view", () =>
 type TerminalViewProps = {
   paneId?: string;
   terminalTheme: ITheme;
+  uiScale: number;
   showMobileKeys?: boolean;
   mobileShortcuts?: MobileTerminalShortcutRows;
   mobileSideShortcuts?: MobileTerminalSideShortcuts;
@@ -796,6 +797,7 @@ function resizeTargetForSplit(
 // the old full terminal view.
 function TerminalPaneLayout({
   terminalTheme,
+  uiScale,
   mobileShortcuts,
   mobileSideShortcuts,
   composerOpen,
@@ -805,6 +807,7 @@ function TerminalPaneLayout({
   onOpenWorkspaceFile,
 }: {
   terminalTheme: ITheme;
+  uiScale: number;
   mobileShortcuts: MobileTerminalShortcutRows;
   mobileSideShortcuts: MobileTerminalSideShortcuts;
   composerOpen: boolean;
@@ -854,6 +857,7 @@ function TerminalPaneLayout({
       <TerminalView
         key={mountKeyForPane(activePaneId)}
         terminalTheme={terminalTheme}
+        uiScale={uiScale}
         mobileShortcuts={mobileShortcuts}
         mobileSideShortcuts={mobileSideShortcuts}
         composerOpen={composerOpen}
@@ -909,6 +913,7 @@ function TerminalPaneLayout({
           key={mountKeyForPane(activePaneId)}
           paneId={activePaneId}
           terminalTheme={terminalTheme}
+          uiScale={uiScale}
           mobileShortcuts={mobileShortcuts}
           mobileSideShortcuts={mobileSideShortcuts}
           composerOpen={composerOpen}
@@ -1013,6 +1018,7 @@ function TerminalPaneLayout({
               key={mountKeyForPane(layoutPane.pane_id)}
               paneId={layoutPane.pane_id}
               terminalTheme={terminalTheme}
+              uiScale={uiScale}
               showMobileKeys={isActive}
               mobileShortcuts={mobileShortcuts}
               mobileSideShortcuts={mobileSideShortcuts}
@@ -2941,6 +2947,7 @@ export default function App() {
             <div className="workspace-terminal-surface">
               <TerminalPaneLayout
                 terminalTheme={terminalTheme}
+                uiScale={uiScale}
                 mobileShortcuts={mobileTerminalShortcuts}
                 mobileSideShortcuts={mobileTerminalSideShortcuts}
                 composerOpen={terminalComposerOpen}

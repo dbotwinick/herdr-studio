@@ -1,4 +1,9 @@
-import { annotationDraftStorageKey } from "./annotations";
+import {
+  annotationDraftStorageKey,
+  readReviewAnnotations,
+  writeReviewAnnotations,
+  type ReviewAnnotation,
+} from "./annotations";
 import { describe, expect, test } from "bun:test";
 import type { Workspace } from "./types";
 import {
@@ -161,26 +166,149 @@ describe("workspace resource scope", () => {
     );
   });
 
-  test("ignores repository settings enrichment and normalizes checkout separators", () => {
-    const first = workspace("first", "C:\\repo\\wt\\", "settings-before");
-    const second = workspace("second", "C:/repo/wt/", "settings-after");
+  test("preserves endpoint identity while normalizing checkout separators", () => {
+    const first = workspace("first", "C:\\repo\\wt\\", " local:repo-key ");
+    const second = workspace("second", "C:/repo/wt/", "local:repo-key");
     expect(
       sameResourceOwner(
         resourceScopeForWorkspace("local", first),
         resourceScopeForWorkspace("local", second),
       ),
     ).toBe(true);
-    second.worktree!.gui_settings_key = undefined;
+  });
+
+  test("falls back stably for missing settings keys without aliasing enriched identity", () => {
+    const first = workspace("first", "/repo/");
+    first.worktree!.gui_settings_key = undefined;
+    first.worktree!.repo_key = " repo-key ";
+    const reopened = workspace("reopened", "/repo", "   ");
     expect(checkoutKeyForWorkspace(first)).toBe(
-      checkoutKeyForWorkspace(second),
+      JSON.stringify(["repo-key", "/repo"]),
     );
+    expect(checkoutKeyForWorkspace(reopened)).toBe(
+      checkoutKeyForWorkspace(first),
+    );
+    const storage = memoryStorage();
+    const unknown = resourceScopeForWorkspace("ssh-profile", first);
+    writeResourceFileSelection(storage, unknown, "unknown-endpoint.md");
+    reopened.worktree!.gui_settings_key =
+      "connection:ssh-profile:ssh:host-a:repo-key";
+    const enriched = resourceScopeForWorkspace("ssh-profile", reopened);
+    expect(sameResourceOwner(unknown, enriched)).toBe(false);
+    expect(readResourceFileSelection(storage, enriched)).toBeUndefined();
+    expect(readResourceFileSelection(storage, unknown)).toBe(
+      "unknown-endpoint.md",
+    );
+  });
+
+  test("uses workspace scope when worktree or required checkout identity is missing", () => {
+    expect(resourceScopeForWorkspace("local", workspace("plain"))).toEqual({
+      kind: "workspace",
+      connectionId: "local",
+      workspaceId: "plain",
+    });
+    const emptyPath = workspace("empty-path", "   ");
+    expect(checkoutKeyForWorkspace(emptyPath)).toBeNull();
+    const emptyRepo = workspace("empty-repo", "/repo", "   ");
+    emptyRepo.worktree!.repo_key = "   ";
+    expect(checkoutKeyForWorkspace(emptyRepo)).toBeNull();
+  });
+
+  test("isolates persisted state across a repointed SSH profile and restores it after reconnect", () => {
+    const storage = memoryStorage();
+    const hostWorkspace = (id: string, host: string, path = "/repo") =>
+      workspace(id, path, `connection:ssh-profile:ssh:${host}:repo-key`);
+    const hostA = hostWorkspace("w1", "host-a");
+    // Profile replacement can reuse both the profile and runtime workspace IDs.
+    const hostB = hostWorkspace("w1", "host-b");
+    const scopeA = resourceScopeForWorkspace("ssh-profile", hostA);
+    const scopeB = resourceScopeForWorkspace("ssh-profile", hostB);
+    const draft: ReviewAnnotation = {
+      id: "host-a-draft",
+      source: "file",
+      anchor: "line",
+      path: "README.md",
+      line: 1,
+      quote: "host A only",
+      comment: "Review on host A",
+      createdAt: 1,
+    };
+    writeResourceFileSelection(storage, scopeA, "host-a.md");
+    writeInspectorPreferences(storage, {
+      scope: scopeA,
+      open: true,
+      view: "changes",
+      dock: "bottom",
+      size: 410,
+      expanded: false,
+    });
+    writeInspectorNavigationRatio(storage, scopeA, "files", 0.56);
+    expect(
+      writeReviewAnnotations(storage, annotationDraftStorageKey(scopeA), [
+        draft,
+      ]),
+    ).toBe(true);
+
+    const sibling = resourceScopeForWorkspace(
+      "ssh-profile",
+      hostWorkspace("linked", "host-a", "/repo/.worktrees/auth"),
+    );
+    for (const isolated of [scopeB, sibling]) {
+      expect(readResourceFileSelection(storage, isolated)).toBeUndefined();
+      expect(readInspectorPreferences(storage, isolated)).toMatchObject({
+        view: "files",
+        dock: "right",
+        filesNavigationRatio: 0.4,
+      });
+      expect(
+        readReviewAnnotations(storage, annotationDraftStorageKey(isolated)),
+      ).toEqual([]);
+      expect(sameResourceOwner(scopeA, isolated)).toBe(false);
+      expect(resourceStateKey(scopeA)).not.toBe(resourceStateKey(isolated));
+    }
+    expect(resolveWorkspaceForScope(scopeA, [hostB])).toBeUndefined();
+    writeResourceFileSelection(storage, scopeB, "host-b.md");
+    writeInspectorNavigationRatio(storage, scopeB, "files", 0.65);
+    writeReviewAnnotations(storage, annotationDraftStorageKey(scopeB), [
+      { ...draft, id: "host-b-draft", comment: "Review on host B" },
+    ]);
+
+    // Reconstruct scopes as after reconnect/restart; runtime workspace IDs may change.
+    for (const id of ["w1", "restarted-workspace"]) {
+      const reopened = hostWorkspace(id, "host-a", "/repo/");
+      const restored = resourceScopeForWorkspace("ssh-profile", reopened);
+      expect(sameResourceOwner(scopeA, restored)).toBe(true);
+      expect(resolveWorkspaceForScope(scopeA, [hostB, reopened])).toBe(
+        reopened,
+      );
+      expect(readResourceFileSelection(storage, restored)).toBe("host-a.md");
+      expect(readInspectorPreferences(storage, restored)).toMatchObject({
+        view: "changes",
+        dock: "bottom",
+        bottomSize: 410,
+        filesNavigationRatio: 0.56,
+      });
+      expect(
+        readReviewAnnotations(storage, annotationDraftStorageKey(restored)),
+      ).toEqual([draft]);
+    }
+    expect(readResourceFileSelection(storage, scopeB)).toBe("host-b.md");
+    expect(readInspectorPreferences(storage, scopeB).filesNavigationRatio).toBe(
+      0.65,
+    );
+    expect(
+      readReviewAnnotations(storage, annotationDraftStorageKey(scopeB))[0]
+        ?.comment,
+    ).toBe("Review on host B");
   });
 
   test("encodes repository and checkout paths without delimiter collisions", () => {
     const first = workspace("first", "/wt");
     first.worktree!.repo_key = "repo:x";
+    first.worktree!.gui_settings_key = "local:repo:x";
     const second = workspace("second", "x:/wt");
     second.worktree!.repo_key = "repo";
+    second.worktree!.gui_settings_key = "local:repo";
     expect(checkoutKeyForWorkspace(first)).not.toBe(
       checkoutKeyForWorkspace(second),
     );
@@ -216,16 +344,16 @@ describe("workspace resource scope", () => {
     const main = workspace("main", "/repo");
 
     expect(checkoutKeyForWorkspace(first)).toBe(
-      JSON.stringify(["repo-key", "/repo/.worktrees/auth"]),
+      JSON.stringify(["auth-settings", "/repo/.worktrees/auth"]),
     );
     expect(checkoutKeyForWorkspace(main)).toBe(
-      JSON.stringify(["repo-key", "/repo"]),
+      JSON.stringify(["local:repo-key", "/repo"]),
     );
 
     const firstScope = resourceScopeForWorkspace("local", first);
     const reopenedScope = resourceScopeForWorkspace("local", reopened);
     expect(resourceOwnerKey(firstScope)).toBe(
-      `checkout:${JSON.stringify(["repo-key", "/repo/.worktrees/auth"])}`,
+      `checkout:${JSON.stringify(["auth-settings", "/repo/.worktrees/auth"])}`,
     );
     expect(sameResourceOwner(firstScope, reopenedScope)).toBe(true);
     expect(resolveWorkspaceForScope(firstScope, [reopened])).toBe(reopened);
@@ -241,8 +369,10 @@ describe("workspace resource scope", () => {
       workspace("w2", "/worktree"),
     );
     const rightRepoWorkspace = workspace("w3", "/worktree");
-    if (rightRepoWorkspace.worktree)
+    if (rightRepoWorkspace.worktree) {
       rightRepoWorkspace.worktree.repo_key = "other";
+      rightRepoWorkspace.worktree.gui_settings_key = "local:other";
+    }
     const rightRepo = resourceScopeForWorkspace("left", rightRepoWorkspace);
 
     expect(sameResourceOwner(left, rightConnection)).toBe(false);

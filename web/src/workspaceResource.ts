@@ -114,11 +114,11 @@ function normalizedCheckoutPath(path: string): string {
 export function checkoutKeyForWorkspace(workspace: Workspace): string | null {
   const worktree = workspace.worktree;
   if (!worktree) return null;
-  const repoKey = worktree.repo_key.trim();
+  const repoKey = worktree.gui_settings_key?.trim() || worktree.repo_key.trim();
   const checkoutPath = normalizedCheckoutPath(worktree.checkout_path);
   if (!repoKey || !checkoutPath) return null;
-  // gui_settings_key identifies the repository, so it is shared by the main
-  // checkout and every linked worktree. Resource state belongs to one checkout.
+  // Keep the endpoint-qualified repository identity when a profile is repointed.
+  // The path separates its main checkout from linked worktrees.
   return JSON.stringify([repoKey, checkoutPath]);
 }
 
