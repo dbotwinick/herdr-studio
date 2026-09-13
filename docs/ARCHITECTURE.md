@@ -79,8 +79,14 @@ Mouse input uses zero-based pane-local cells, bounded to the crop. Only a press
 inside the pane acquires drag/release ownership; later positions clamp to its
 edge. Reporting changes and session closure cancel ownership. Mouse-aware apps
 receive semantic mouse events; ordinary wheels and explicit history shortcuts
-use history scrolling. During browser selection, presentation retains only the
-latest full repaint and resumes when selection clears. Pane/session changes
+use history scrolling. History requests coalesce wheel intent while one dispatch
+awaits both its RPC reply and viewport feedback; other terminal commands remain
+usable. A confirmed no-op reply needs no repaint. Completed movement is not
+rebased by later history growth. Surfaces have no request identity: a changed
+viewport can also be an external replacement, which becomes authoritative when
+no newer wheel intent is queued. Input, missing panes or scroll metrics, and
+session closure cancel queued history movement. During browser selection,
+presentation retains only the latest full repaint and resumes when selection clears. Pane/session changes
 retire pending presentation; selection replay cannot send application input.
 Endpoint frames include content revision and absolute viewport rows when the
 viewer receives the complete pane crop. Edge-drag selection requests overlapping
