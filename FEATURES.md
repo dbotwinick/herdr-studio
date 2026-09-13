@@ -245,7 +245,14 @@ Lifecycle to manage saved per-checkout settings.
 
 - Browse a cached, expandable workspace file tree and optionally include hidden
   files.
-- Search files that have been loaded into the tree.
+- Search loaded files by substring or glob: `r*md` matches filenames starting
+  with `r` and ending in `md`; `?`, `[abc]`, `{md,mmd}`, and `**` are supported.
+  Patterns containing `/` match loaded paths; matching is case-insensitive.
+- Choose **Browse filesystem** in the file toolbar to opt into read-only browsing
+  outside the workspace on the connected host. Use **Parent directory** or enter
+  an absolute directory to open reference files, preview them, copy paths, or
+  download them. **Workspace only** restores the workspace tree. The mode starts
+  off and resets on browser refresh or checkout/connection changes.
 - See Git status badges on changed files and directories; Git-ignored files
   are dimmed.
 - Preview text with line numbers, syntax highlighting, and `Cmd/Ctrl+F` search.
@@ -257,7 +264,8 @@ Lifecycle to manage saved per-checkout settings.
   scroll to pan or use Ctrl/Cmd + wheel to zoom.
 - Follow relative file links in Markdown previews within the current Inspector.
   Links resolve from the document's directory; leading `/` resolves from the
-  workspace root. Heading fragments scroll within the destination document.
+  workspace root for workspace-relative documents, or the filesystem root for
+  absolute reference documents. Heading fragments scroll within the destination document.
   External links continue to open in a new browser tab.
 - Preview SVG, PNG/APNG, JPEG, GIF, WebP, BMP, ICO, and AVIF images with independent
   zoom and fit controls, plus PDFs and workspace-local Markdown images.

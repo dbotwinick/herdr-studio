@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Search loaded files with glob patterns and opt into read-only filesystem
+  browsing to preview reference materials outside the workspace.
+
 - Order idle agents by session activity in Attention first, preserving recency
   across refreshes and completion acknowledgements without promoting old sessions
   when their status is refreshed.

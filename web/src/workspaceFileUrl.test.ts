@@ -113,3 +113,33 @@ describe("Markdown document links", () => {
     ).toEqual({ path: "docs/guide.md", fragment: "bad%ZZ" });
   });
 });
+
+test("absolute reference documents retain filesystem paths for links, images, and downloads", () => {
+  expect(
+    resolveWorkspaceMarkdownLink(
+      "../readme.md#intro",
+      "/references/docs/guide.md",
+    ),
+  ).toEqual({ path: "/references/readme.md", fragment: "intro" });
+  expect(
+    resolveWorkspaceMarkdownLink("/shared/readme.md", "/references/guide.md"),
+  ).toEqual({ path: "/shared/readme.md", fragment: "" });
+  expect(
+    resolveWorkspaceMarkdownImagePath("../../secret.png", "/guide.md"),
+  ).toBeNull();
+  const url = new URL(
+    resolveWorkspaceMarkdownImageUrl(
+      "image.svg",
+      "/references/guide.md",
+      client,
+      "w1",
+    )!,
+    "http://test",
+  );
+  expect(url.searchParams.get("path")).toBe("/references/image.svg");
+  expect(url.searchParams.get("scope")).toBe("filesystem");
+  expect(url.searchParams.get("inline")).toBe("1");
+  expect(
+    resolveWorkspaceMarkdownImagePath("../image.svg", "C:/refs/docs/guide.md"),
+  ).toBe("C:/refs/image.svg");
+});
