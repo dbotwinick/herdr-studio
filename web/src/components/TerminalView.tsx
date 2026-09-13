@@ -28,7 +28,7 @@ import {
   type MobileTerminalSideShortcuts,
   mobileTerminalShortcutOption,
 } from "../mobileTerminalShortcuts";
-import { paneCanClose } from "../paneJump";
+import { activePaneIdForSnapshot, paneCanClose } from "../paneJump";
 import {
   shallowEqual,
   store,
@@ -113,6 +113,23 @@ import { applyTerminalTheme } from "../terminalThemes";
 import { paneHasAgentHistory } from "./agentSession";
 import { ConfirmDialog, MessageDialog } from "./ModalDialogs";
 import { TerminalComposer } from "./TerminalComposer";
+
+function focusTerminalEndpoint(
+  client: ConnectionClient,
+  terminalId: string | undefined,
+) {
+  if (
+    !terminalId ||
+    !client.isCurrent() ||
+    !store
+      .get()
+      .endpointAvailability[terminalId]?.methods.includes("pane.focus")
+  )
+    return;
+  void client
+    .call("terminal.focus", { terminal_id: terminalId })
+    .catch(() => null);
+}
 
 const SYSTEM_CLIPBOARD = "c" as ClipboardSelectionType;
 
@@ -614,7 +631,12 @@ export function TerminalView({
     if (shouldAvoidVirtualKeyboard()) return;
     requestAnimationFrame(() => {
       window.setTimeout(() => {
-        if (!connectionClient.isCurrent() || composerOpenRef.current) return;
+        if (
+          !connectionClient.isCurrent() ||
+          !isActivePaneRef.current ||
+          composerOpenRef.current
+        )
+          return;
         const term = termRef.current;
         const active = document.activeElement;
         const activeElement = active instanceof HTMLElement ? active : null;
@@ -628,6 +650,19 @@ export function TerminalView({
       }, 0);
     });
   }, [connectionClient]);
+  const focusEndpoint = useCallback(() => {
+    focusTerminalEndpoint(connectionClient, paneTerminalIdRef.current);
+  }, [connectionClient]);
+  useEffect(() => {
+    if (isActivePane) focusEndpoint();
+  }, [focusEndpoint, isActivePane, pane?.terminal_id]);
+  useEffect(() => {
+    if (!container) return;
+    // Clicking the already-selected pane must also reclaim its cursor after
+    // another client has changed the shared same-tab focus.
+    container.addEventListener("pointerdown", focusEndpoint);
+    return () => container.removeEventListener("pointerdown", focusEndpoint);
+  }, [container, focusEndpoint]);
   // Fits the xterm to its container, unless the container is hidden or
   // unmounted (e.g. the diff/files view covers it with display:none). Fitting
   // a hidden container would collapse the terminal to a 2x1 minimum and leak a
@@ -2179,6 +2214,16 @@ export function TerminalView({
           if (attachingRef.current === terminalId) attachingRef.current = null;
           if (desiredTerminalRef.current === terminalId) {
             attachedRef.current = terminalId;
+            // Attaching a split focuses it in Herdr, even in the background.
+            // Restore the current selection after each completed attach; use
+            // current state so a late response cannot revive an old selection.
+            const current = store.get();
+            const selectedPaneId = activePaneIdForSnapshot(current);
+            focusTerminalEndpoint(
+              connectionClient,
+              current.panes.find((p) => p.pane_id === selectedPaneId)
+                ?.terminal_id,
+            );
             focusTerminalSoon();
             // Resizes observed while the attach was in flight are dropped by
             // the sync's send guard; push the settled size now (deduped).
