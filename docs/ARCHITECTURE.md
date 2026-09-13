@@ -39,6 +39,11 @@ capabilities. Attachment waits for the initial snapshot. Each terminal crops its
 pane from the server-rendered tab surface and sends semantic input to that pane;
 panes retain their shared layout dimensions.
 
+Incremental surface patches update only the named panes; other pane metadata
+remains available for cropping and cursor delivery. Each patch replaces the
+complete cursor state, including `null` to clear it. Pane topology changes
+require a full surface; patches naming unknown panes are discarded.
+
 `terminal.attach` carries pane content dimensions in `cols`/`rows`. When layout
 is available, the browser also supplies `surface_cols`/`surface_rows` for the
 complete tab, including pane borders but excluding app sidebar/tab-bar insets.
@@ -84,6 +89,14 @@ topology, not subsequent navigation. Stale layouts and delayed action results
 cannot replace newer browser selections. This is independent workspace/tab
 navigation, not independent native same-tab pane focus. Legacy navigation,
 topology mutations, and terminal dimensions remain shared.
+
+Active terminal selection and terminal clicks send `terminal.focus` through the
+attached shell's `pane.focus` endpoint so the tab surface supplies that pane's
+cursor. The browser restores its selection after split attachments become ready,
+but does not refocus on streaming frames or routine snapshots. Focus requests are
+serialized per browser across endpoint lanes, superseded queued selections are
+discarded, and attachment ownership and connection leases are rechecked before
+dispatch. Same-tab cursor ownership remains shared with other Herdr clients.
 
 Creation uses explicit context and `focus: false`, adopting returned IDs only
 while the initiating selection and connection lease remain current. Studio-only

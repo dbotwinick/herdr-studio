@@ -162,6 +162,9 @@ async function startSessionServer(handlers: {
   onPaneInput?: (paneId: string, reader: BinReader) => void;
   panes?: TestPane[];
   onConnection?: (sendSurface: (panes: TestPane[]) => void) => void;
+  onPatchConnection?: (
+    send: (cursor: FrameData["cursor"], panes: TestPane[]) => void,
+  ) => void;
   onClipboardConnection?: (send: (data: string) => void) => void;
   onDisconnectConnection?: (disconnect: () => void) => void;
   initialSurface?: { frame: FrameData; panes: TestPane[] };
@@ -208,6 +211,33 @@ async function startSessionServer(handlers: {
     handlers.onConnection?.((panes) =>
       socket.write(encodeFrame(surfaceFrame(++revision, frame, panes))),
     );
+    handlers.onPatchConnection?.((cursor, panes) => {
+      const w = new BinWriter();
+      w.variant(19); // PaneSurfacePatch
+      w.string("boot-1");
+      w.varint(1); // projection_revision
+      w.varint(revision);
+      w.varint(++revision);
+      w.varint(0); // cursor/metadata-only patch: no changed rows
+      w.varint(panes.length);
+      for (const pane of panes)
+        writePane(
+          w,
+          pane.paneId,
+          pane.x,
+          0,
+          pane.mouseReporting,
+          pane.rect,
+          pane.innerRect,
+        );
+      w.option(cursor, (cur) => {
+        w.varint(cur.x);
+        w.varint(cur.y);
+        w.bool(cur.visible);
+        w.u8(cur.shape);
+      });
+      socket.write(encodeFrame(w.toBuffer()));
+    });
     socket.on("data", (chunk) => {
       input = Buffer.concat([
         input,
@@ -310,6 +340,68 @@ async function startSessionServer(handlers: {
   });
   return socketPath;
 }
+
+test.each(["cursor only", "other split pane"])(
+  "restores a hidden cursor when a patch updates %s",
+  async (update) => {
+    const initial: FrameData = {
+      cells: Array.from({ length: 100 }, () => cell(" ")),
+      width: 20,
+      height: 5,
+      cursor: null,
+      hyperlinks: [],
+    };
+    const panes = [
+      { paneId: "w1:p1", x: 0, mouseReporting: false },
+      { paneId: "w1:p2", x: 10, mouseReporting: true },
+    ];
+    let sendPatch!: (cursor: FrameData["cursor"], panes: TestPane[]) => void;
+    const socketPath = await startSessionServer({
+      initialSurface: { frame: initial, panes },
+      onPatchConnection: (send) => {
+        sendPatch = send;
+      },
+    });
+    const session = new EndpointTerminalSession(
+      socketPath,
+      "terminal",
+      async () => "w1:p1",
+    );
+    const frames: Array<{
+      frame: FrameData;
+      bytes: Buffer;
+      mouseReporting: boolean;
+    }> = [];
+    session.on("terminal", (frame) => frames.push(frame));
+    try {
+      await session.connect(8, 3, { cols: 20, rows: 5 });
+      expect(frames.at(-1)?.bytes.toString()).toEndWith("\x1b[?25l");
+      const changedPanes = update === "cursor only" ? [] : [panes[1]];
+      const visible = { x: 2, y: 2, visible: true, shape: 5 };
+      for (const cursor of [
+        visible,
+        null,
+        { ...visible, visible: false },
+        { ...visible, x: 3 },
+      ]) {
+        const count = frames.length;
+        sendPatch(cursor, changedPanes);
+        await Bun.sleep(50);
+        expect(frames).toHaveLength(count + 1);
+        const result = frames.at(-1)!;
+        expect(result.frame.cursor).toEqual(
+          cursor ? { ...cursor, x: cursor.x - 1, y: cursor.y - 1 } : null,
+        );
+        expect(result.mouseReporting).toBe(false);
+        expect(result.bytes.toString()).toEndWith(
+          cursor?.visible ? "\x1b[5 q\x1b[?25h" : "\x1b[?25l",
+        );
+      }
+    } finally {
+      session.close();
+    }
+  },
+);
 
 function splitSurface(cols: number, rows: number, count = 2) {
   const frame: FrameData = {
@@ -2357,5 +2449,162 @@ test("reconnect replaces advertisements while other connection runtimes retain t
   } finally {
     a.bridge.dispose();
     b.bridge.dispose();
+  }
+});
+
+describe("attached endpoint cursor focus", () => {
+  test("focuses an owned attachment without input and rejects other viewers", async () => {
+    const requests: Array<{ method: string; params: any }> = [];
+    const inputs: string[] = [];
+    const socketPath = await startSessionServer({
+      onRequest: (method, params) => {
+        requests.push({ method, params });
+      },
+      onPaneInput: (paneId) => inputs.push(paneId),
+    });
+    const { bridge, ws, replies, attach } = creationBridge(socketPath);
+    try {
+      await attach();
+      requests.length = 0;
+      await bridge.handleTerminalRpc(ws, "focus", "terminal.focus", {
+        terminal_id: "term1",
+      });
+      expect(requests).toEqual([
+        { method: "pane.focus", params: { pane_id: "w1:p1" } },
+      ]);
+      expect(replies.find((r) => r.id === "focus")?.result).toEqual({
+        ok: true,
+      });
+      await bridge.handleTerminalRpc(
+        {} as ServerWebSocket<unknown>,
+        "other",
+        "terminal.focus",
+        { terminal_id: "term1" },
+      );
+      await bridge.handleTerminalRpc(ws, "unknown", "terminal.focus", {
+        terminal_id: "missing",
+      });
+      expect(replies.find((r) => r.id === "other")?.error).toBeDefined();
+      expect(replies.find((r) => r.id === "unknown")?.error).toBeDefined();
+      expect(requests).toHaveLength(1);
+      expect(inputs).toEqual([]);
+    } finally {
+      bridge.dispose();
+    }
+  });
+
+  for (const invalidation of [
+    "none",
+    "detach",
+    "replace",
+    "lease",
+    "disconnect",
+    "dispose",
+  ] as const) {
+    test(`waits for attachment readiness and handles ${invalidation}`, async () => {
+      const lookup = deferred<string>();
+      let lookupCount = 0;
+      let current = true;
+      const requests: string[] = [];
+      const socketPath = await startSessionServer({
+        onRequest: (method) => {
+          requests.push(method);
+        },
+      });
+      const { bridge, ws, replies, attach } = creationBridge(socketPath, {
+        lookup: async () => (++lookupCount === 1 ? lookup.promise : "w1:p1"),
+      });
+      try {
+        const attaching = attach();
+        await settleUntil(() => lookupCount === 1);
+        const focusing = bridge.handleTerminalRpc(
+          ws,
+          "focus",
+          "terminal.focus",
+          { terminal_id: "term1" },
+          () => current,
+        );
+        await Bun.sleep(10);
+        expect(requests).toEqual([]);
+        expect(replies.find((r) => r.id === "focus")).toBeUndefined();
+        if (invalidation === "lease") current = false;
+        else if (invalidation === "dispose") bridge.dispose();
+        else if (invalidation === "disconnect") bridge.cleanupWs(ws);
+        else if (invalidation !== "none") {
+          await bridge.handleTerminalRpc(ws, "detach", "terminal.detach", {
+            terminal_id: "term1",
+          });
+          if (invalidation === "replace") await attach("replacement");
+        }
+        lookup.resolve("w1:p1");
+        await Promise.all([attaching, focusing]);
+        const response = replies.find((r) => r.id === "focus");
+        if (invalidation === "none") {
+          expect(response?.result).toEqual({ ok: true });
+          expect(requests).toEqual(["pane.focus", "pane.focus"]);
+        } else {
+          expect(response?.error).toBeDefined();
+          expect(requests).toHaveLength(
+            invalidation === "lease" || invalidation === "replace" ? 1 : 0,
+          );
+        }
+      } finally {
+        bridge.dispose();
+      }
+    });
+  }
+
+  for (const supersede of [false, true]) {
+    test(`orders focus across endpoint lanes${supersede ? " and drops superseded selections" : ""}`, async () => {
+      const hold = deferred<void>();
+      const requests: string[] = [];
+      let block = false;
+      const socketPath = await startSessionServer({
+        panes: [
+          { paneId: "w1:p1", x: 0, mouseReporting: false },
+          { paneId: "w1:p2", x: 10, mouseReporting: false },
+        ],
+        onRequest: async (method, params) => {
+          if (method !== "pane.focus") return;
+          requests.push(params.pane_id);
+          if (block && requests.length === 1) await hold.promise;
+        },
+      });
+      const { bridge, ws, replies, attach } = creationBridge(socketPath, {
+        lookup: async (id) => (id === "term1" ? "w1:p1" : "w1:p2"),
+      });
+      try {
+        await attach();
+        await bridge.handleTerminalRpc(ws, "attach2", "terminal.attach", {
+          terminal_id: "term2",
+          cols: 8,
+          rows: 3,
+          relay_active: false,
+        });
+        requests.length = 0;
+        block = true;
+        const focus = (id: string, terminalId: string) =>
+          bridge.handleTerminalRpc(ws, id, "terminal.focus", {
+            terminal_id: terminalId,
+          });
+        const first = focus("first", "term1");
+        await settleUntil(() => requests.length === 1);
+        const second = focus("second", "term2");
+        const third = supersede ? focus("third", "term1") : Promise.resolve();
+        await Bun.sleep(20);
+        expect(requests).toEqual(["w1:p1"]);
+        hold.resolve();
+        await Promise.all([first, second, third]);
+        expect(requests).toEqual(["w1:p1", supersede ? "w1:p1" : "w1:p2"]);
+        expect(
+          replies
+            .filter((r) => ["first", "second", "third"].includes(r.id))
+            .every((r) => r.result?.ok),
+        ).toBe(true);
+      } finally {
+        hold.resolve();
+        bridge.dispose();
+      }
+    });
   }
 });
