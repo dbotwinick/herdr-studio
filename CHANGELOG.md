@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Keep Inspector previews and state separate between the main checkout, linked
+  worktrees, and SSH destinations when repointing a saved connection. Previously
+  shared selections, preferences, and review drafts start fresh per checkout;
+  original browser storage is retained.
 - Keep the cursor on the selected terminal pane when switching splits, and preserve
   cursor updates and hide/show transitions across incremental repaints.
 - Keep the Actions menu on screen and terminal selection aligned with the mouse

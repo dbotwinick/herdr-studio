@@ -170,11 +170,23 @@ groups do not represent a combined working tree. Changes describe checkout edits
 not proof that one agent produced them. Last step uses recorded activity snapshots,
 not attribution of arbitrary working-tree edits.
 
-Git resource keys use `worktree.gui_settings_key`, falling back to repository key
-plus normalized checkout path. Non-Git resources use workspace identity. All are
-connection-scoped. Workspaces sharing a checkout may share caches, but requests
-retain workspace/runtime leases and resource revisions: refresh/removal retires
+Git resource keys encode the endpoint-qualified repository identity
+(`worktree.gui_settings_key`) and normalized checkout path as a pair. The path
+separates linked checkouts; the repository identity separates SSH destinations
+when a saved connection is repointed. Missing or blank settings keys fall back
+to the trimmed repository key, which cannot distinguish endpoints on its own.
+Newly enriched identities do not inherit this fallback's stored state. Runtime
+generations are not part of persistent keys. Non-Git resources use workspace
+identity. All are connection-scoped.
+Workspaces sharing a checkout may share caches, but requests retain
+workspace/runtime leases and resource revisions: refresh/removal retires
 older prefetches. Tab/pane IDs do not own resource caches.
+
+Older repository-wide Inspector storage is not automatically migrated: its file
+selections, layout preferences, and review drafts do not identify their original
+checkout. The original browser storage is retained, while checkout-specific
+state starts fresh. Switching checkouts restores that checkout's saved selection
+or shows its file list when nothing has been selected.
 
 Inspector actions capture the originating workspace instead of consulting global
 focus when results arrive. A vanished workspace can rebind only to the same
