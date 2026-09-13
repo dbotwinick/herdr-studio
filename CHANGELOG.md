@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fix copying preview content and file paths when Roamgate is opened over HTTP.
+
 ## 0.7.1 - 2026-09-13
 
 - Use Roamgate service, plugin and data names while keeping existing managed
