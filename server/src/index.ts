@@ -777,6 +777,17 @@ async function handleRpc(ws: ServerWebSocket<unknown>, raw: string) {
     return;
   }
 
+  if (method === "agent.list") {
+    try {
+      const result = await connection.agentSessions.listWithActivity(
+        params ?? {},
+      );
+      sendReply({ id, result }, "agent-list");
+    } catch (e) {
+      sendError("agent-list-error", e);
+    }
+    return;
+  }
   if (method === "agent_history.get") {
     try {
       const result = await readAgentMessageHistory(params ?? {});
@@ -1129,6 +1140,7 @@ async function handleConnectionHttpRequest(
         response = await connection.files.downloadWorkspaceFile({
           workspace_id: url.searchParams.get("workspace_id"),
           path: url.searchParams.get("path"),
+          scope: url.searchParams.get("scope"),
           inline: url.searchParams.get("inline") === "1",
         });
       } catch (error) {

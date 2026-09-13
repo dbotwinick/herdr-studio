@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- Open complete terminal file paths across wrapped rows, including indented
+  continuations in agent output, from either part of the link.
+- Preview SVG and APNG images, render Mermaid files with source headers, and zoom
+  diagrams or images independently with Fit and 100% controls.
+- Fix copying preview content and file paths when Roamgate is opened over HTTP.
+- Order idle agents by session activity in Attention first, preserving recency
+  across refreshes and completion acknowledgements without promoting old sessions
+  when their status is refreshed.
+- Search loaded files with glob patterns and opt into read-only filesystem
+  browsing to preview reference materials outside the workspace.
+- Refresh the current file directly from the preview header.
+
 ## 0.7.1 - 2026-09-13
 
 - Use Roamgate service, plugin and data names while keeping existing managed

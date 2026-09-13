@@ -61,7 +61,8 @@ macOS preset; see [other platform bindings](#keyboard-shortcuts).
   recipient, not proven originating-pane ownership; see
   [clipboard compatibility](docs/DEPLOYMENT.md#herdr-compatibility).
 - `Cmd/Ctrl`-click HTTP(S) links to open safely in a new tab, or workspace-relative
-  / absolute paths to preview text, Markdown, or images.
+  / absolute paths to preview text, Markdown, or images. Wrapped paths remain
+  one link, including indented continuations in agent output.
 
 ## Workspace Inspector
 
@@ -101,7 +102,10 @@ See [resource ownership](docs/ARCHITECTURE.md#workspace-resource-ownership).
   done, working, idle, unknown. Sort/Group icons offer workspace/manual order
   and status/workspace/type groups with collapse controls. Ungrouped manual
   order supports dragging. Sort/group preferences are browser-local; manual
-  order is per connection.
+  order is per connection. Idle agents sort by newest session-file activity
+  reported by the bridge, with Herdr state-change sequence as a fallback.
+  Recency survives refreshes and completion acknowledgements without browser
+  activity tracking; manual and workspace order stay unchanged.
 - Rows show tab names before pane IDs; blank or numbered defaults (`2`, `Tab 2`)
   are omitted in both views.
 - Inspect turns, tokens, update time, session ID/file, and other metadata. Session
@@ -190,16 +194,30 @@ is open in the current connection.
 ## File Explorer and Preview
 
 - Browse a cached, expandable tree, optionally including hidden files. Search
-  covers loaded files; Git badges mark changed files/directories; ignored files
+  loaded names/paths by substring or glob: `r*md`, `?.txt`, `[abc]*`, `{md,mmd}`,
+  and `**` are supported. Patterns with `/` match loaded paths; matching is
+  case-insensitive. Git badges mark changed files/directories; ignored files
   are dimmed.
+- Choose **Browse filesystem** in the toolbar to opt into read-only browsing
+  outside the workspace on the connected host. Use **Parent directory** or enter
+  an absolute directory to preview references, copy paths, or download files.
+  **Workspace only** restores the tree. This mode is off by default and resets
+  on browser refresh or checkout/connection changes.
 - Preview text with line numbers, syntax highlighting, and `Cmd/Ctrl+F` search.
-  Markdown and `.mmd`/`.mermaid` files offer Raw/Rendered views, including
-  Mermaid diagrams in Markdown fences.
+  Use **Refresh preview** beside Copy to reload the current file from disk
+  without reopening it; the selected Raw/Rendered or Diagram/Source mode is preserved.
+  Markdown offers Raw/Rendered views with Mermaid diagrams in code fences.
+  `.mmd`/`.mermaid` files offer Diagram/Source views and accept leading comments,
+  document headers, and Mermaid fences. Diagrams have independent zoom, Fit, and
+  100% controls; scroll to pan or use Ctrl/Cmd + wheel to zoom.
 - Follow Markdown file links within the Inspector: relative to the document,
   leading `/` from workspace root, and heading fragments within the destination.
+  For absolute reference files, links resolve from the file directory and
+  leading `/` resolves from the filesystem root.
   External links open a new browser tab.
-- Preview common images, PDFs, and workspace-local Markdown images; unsupported
-  binaries are download-only.
+- Preview SVG, PNG/APNG, JPEG, GIF, WebP, BMP, ICO, and AVIF images with zoom and
+  Fit controls, plus PDFs and workspace-local Markdown images. Unsupported
+  binaries remain download-only; image decoding depends on the browser.
 - Drag uploads onto the root/directory. Download files or workspace-scoped
   `.tar.gz` directories; copy absolute paths; delete with confirmation.
   Open actions by right-click or touch long-press.

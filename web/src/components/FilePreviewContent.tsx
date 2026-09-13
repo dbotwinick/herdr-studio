@@ -10,7 +10,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import type { EditorView as CodeMirrorEditorView } from "@codemirror/view";
-import { ChevronLeft } from "lucide-react";
+import { ChevronLeft, RefreshCw } from "lucide-react";
 import { fileReviewLineLabel, MAX_QUOTE_LENGTH } from "../annotations";
 import {
   FileAnnotationDrag,
@@ -22,6 +22,7 @@ import type {
   ReviewAnnotation,
 } from "../annotations";
 import type { FileExplorerEntry, FilePreview } from "../types";
+import { copyTextFromUserGesture } from "../terminalClipboard";
 import { useConnectionClient } from "../useConnectionClient";
 import {
   resolveWorkspaceMarkdownImageUrl,
@@ -34,6 +35,7 @@ import {
   type AnnotationComposerDraft,
 } from "./AnnotationComposerPopover";
 import { MermaidDiagram } from "./MermaidDiagram";
+import { ImagePreview } from "./ImagePreview";
 import {
   handlePreviewEditorCopy,
   isEditablePreviewTarget,
@@ -178,6 +180,7 @@ export function FilePreviewContent({
   backAction,
   onOpenChanges,
   onOpenFile,
+  onRefresh,
   onCreateAnnotation,
   onReanchorAnnotations,
 }: {
@@ -192,6 +195,7 @@ export function FilePreviewContent({
   annotations?: readonly ReviewAnnotation[];
   onOpenChanges?: () => void;
   onOpenFile?: (path: string, fragment?: string) => void;
+  onRefresh?: () => void;
   onCreateAnnotation?: (annotation: NewReviewAnnotation) => void;
   onReanchorAnnotations?: (path: string, text: string) => void;
 }) {
@@ -285,6 +289,9 @@ export function FilePreviewContent({
 
   useEffect(() => {
     setPreviewMode("rendered");
+  }, [entry?.path]);
+
+  useEffect(() => {
     setPendingAnnotation(null);
     setMarkdownSelection(null);
   }, [previewPath]);
@@ -386,7 +393,7 @@ export function FilePreviewContent({
   const copyPreviewText = async () => {
     if (previewText === null) return;
     try {
-      await navigator.clipboard.writeText(previewText);
+      await copyTextFromUserGesture(previewText);
       store.notify({
         kind: "success",
         message: "File content copied",
@@ -433,6 +440,22 @@ export function FilePreviewContent({
             {entry?.name ?? "Preview"}
           </div>
           <div className="file-preview-head-actions">
+            {!showingChanges && entry && onRefresh ? (
+              <button
+                type="button"
+                className="file-preview-refresh"
+                title="Refresh preview"
+                aria-label="Refresh preview"
+                disabled={loading}
+                onClick={onRefresh}
+              >
+                <RefreshCw
+                  size={13}
+                  className={loading ? "is-spinning" : undefined}
+                  aria-hidden="true"
+                />
+              </button>
+            ) : null}
             {!showingChanges && hasPreviewText && !preview?.truncated ? (
               <button
                 type="button"
@@ -443,7 +466,31 @@ export function FilePreviewContent({
                 Copy
               </button>
             ) : null}
-            {!showingChanges && hasRichPreview ? (
+            {!showingChanges && hasMermaidPreview ? (
+              <div
+                className="file-preview-mode-options"
+                role="group"
+                aria-label="Mermaid preview mode"
+              >
+                <button
+                  type="button"
+                  className="file-preview-mode-toggle"
+                  aria-pressed={previewMode === "rendered"}
+                  onClick={() => setPreviewMode("rendered")}
+                >
+                  Diagram
+                </button>
+                <button
+                  type="button"
+                  className="file-preview-mode-toggle"
+                  aria-pressed={previewMode === "raw"}
+                  onClick={() => setPreviewMode("raw")}
+                >
+                  Source
+                </button>
+              </div>
+            ) : null}
+            {!showingChanges && hasMarkdownPreview ? (
               <button
                 type="button"
                 className="file-preview-mode-toggle"
@@ -504,13 +551,11 @@ export function FilePreviewContent({
             <div className="file-preview-state is-error">{error}</div>
           ) : null}
           {!loading && !error && preview?.image_data_url ? (
-            <div className="file-preview-image-wrap">
-              <img
-                className="file-preview-image"
-                src={preview.image_data_url}
-                alt={entry?.name ?? preview.path}
-              />
-            </div>
+            <ImagePreview
+              key={previewPath}
+              src={preview.image_data_url}
+              name={entry?.name ?? preview.path}
+            />
           ) : null}
           {!loading &&
           !error &&
@@ -561,6 +606,7 @@ export function FilePreviewContent({
           ) : null}
           {!loading && !error && hasMermaidPreview && renderRichPreview ? (
             <MermaidDiagram
+              key={previewPath}
               code={previewText}
               className="file-preview-mermaid"
             />

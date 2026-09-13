@@ -5,6 +5,7 @@ import {
   downloadContentDisposition,
   inlineContentDisposition,
   sanitizeExplorerPath,
+  sanitizeFilesystemPath,
   sanitizePreviewPath,
   sanitizeUploadFilename,
 } from "./file-paths";
@@ -93,7 +94,10 @@ export function createFileHandlers({
   async function downloadTarget(params: Record<string, unknown>) {
     const workspaceId = String(params.workspace_id ?? "");
     if (!workspaceId) throw new Error("file.download requires workspace_id");
-    const path = sanitizeExplorerPath(params.path);
+    const path =
+      params.scope === "filesystem"
+        ? sanitizeFilesystemPath(params.path)
+        : sanitizeExplorerPath(params.path);
     if (!path) throw new Error("file.download requires path");
     const workspace = await getWorkspace(workspaceId);
     const checkoutPath = await explorerRoot(workspaceId, workspace);
@@ -129,19 +133,23 @@ export function createFileHandlers({
     const workspace = await getWorkspace(workspaceId);
     const checkoutPath = await explorerRoot(workspaceId, workspace);
     if (!checkoutPath) throw new Error("workspace has no directory path");
-    const relativePath = sanitizeExplorerPath(params.path);
+    const filesystem = params.scope === "filesystem";
+    const rootPath = filesystem
+      ? sanitizeFilesystemPath(params.path || checkoutPath)
+      : checkoutPath;
+    const relativePath = filesystem ? "" : sanitizeExplorerPath(params.path);
     const showHidden = params.show_hidden === true;
     const host = sshHost();
     const list = host
       ? await listRemoteFiles({
           host,
-          rootPath: checkoutPath,
+          rootPath,
           relativePath,
           showHidden,
           runProcessWithCodeTimeout,
           shQuote,
         })
-      : await listLocalFiles(checkoutPath, relativePath, showHidden);
+      : await listLocalFiles(rootPath, relativePath, showHidden, filesystem);
     if (list.entries.length) {
       const ignored = await collectIgnoredNames({
         host,
@@ -155,8 +163,16 @@ export function createFileHandlers({
         );
       }
     }
+    if (filesystem) {
+      const directory = list.root.replace(/\\/g, "/").replace(/\/+$/, "");
+      list.entries = list.entries.map((entry) => ({
+        ...entry,
+        path: `${directory}/${entry.name}`,
+      }));
+    }
     return {
       ...list,
+      ...(filesystem ? { scope: "filesystem" as const } : {}),
       workspace_id: workspaceId,
       repo_name: workspace?.worktree?.repo_name ?? workspace?.label ?? "",
       checkout_path: checkoutPath,
@@ -267,6 +283,12 @@ export function createFileHandlers({
     if (inlineMime) {
       headers["cache-control"] = "private, no-store";
       headers["x-content-type-options"] = "nosniff";
+    }
+    if (inlineMime === "image/svg+xml") {
+      // SVGs are inert in <img>. Keep direct navigation to the same endpoint
+      // isolated too, without granting workspace content the Studio origin.
+      headers["content-security-policy"] =
+        "sandbox; default-src 'none'; style-src 'unsafe-inline'; img-src data:";
     }
     return new Response(download.body, { headers });
   }

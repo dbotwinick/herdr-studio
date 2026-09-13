@@ -62,7 +62,7 @@ import {
   clearFileExplorerResourceCache,
   prefetchFileExplorerWorkspace,
   requestFilePreview,
-} from "./components/FileExplorerDialog";
+} from "./components/fileExplorerResources";
 import { type ActiveFilePreviewSelection } from "./components/FilePreviewContent";
 import { GlobalTooltip } from "./components/GlobalTooltip";
 import { MobileTabSheet } from "./components/MobileTabSheet";
@@ -3036,6 +3036,14 @@ export default function App() {
                         selection,
                       )
                     }
+                    onRefreshFile={() => {
+                      if (inspectorWorkspace && activeFilePreview.entry)
+                        loadInspectorFilePreview(
+                          inspectorWorkspace.workspace_id,
+                          activeFilePreview.entry,
+                          activeFilePreview.fragment,
+                        );
+                    }}
                     onOpenDiffFile={openDiffFileInExplorer}
                     onOpenDocument={(path, fragment) => {
                       if (inspectorWorkspace)

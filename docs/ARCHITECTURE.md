@@ -26,6 +26,17 @@ operations, terminal and clipboard relay, authentication, health, and updates.
 React owns presentation and browser-local preferences. xterm displays Herdr's
 server-rendered output rather than reconstructing a PTY in the bridge.
 
+## Agent activity
+
+The bridge enriches `agent.list` with optional `last_activity_at` epoch
+milliseconds from the session file's modification time. Resolution uses the
+reported session identity and the connection's file access, without parsing
+transcripts. File checks have bounded concurrency and a 1.5-second response
+budget; unavailable metadata never removes agents from the list. Remote IDs
+that require local directory searches are left unresolved rather than matched
+to this host's sessions. The browser uses timestamps for idle-agent recency,
+with Herdr's state-change sequence as a fallback, and stores no activity history.
+
 ## Terminal endpoints
 
 Interface text size uses root CSS zoom. Terminal surfaces cancel that zoom and
@@ -59,6 +70,14 @@ legacy direct attachments continue to use the pane content dimensions.
 Endpoint repaints are clipped to each viewer's requested viewport, including
 wide-character and cursor boundaries. Browsers discard oversized frames that
 arrive after a local shrink or were held during text selection.
+
+Terminal links retain cell coordinates while scanning soft-wrapped text. Endpoint
+cell repaints do not contain soft-wrap metadata, so file detection also considers
+adjacent path fragments with application-inserted indentation and padding. These
+inferred paths must pass workspace-scoped file resolution before activation;
+ordinary rows remain independent when no combined file exists. Scanning is bounded,
+blank lines separate contexts, and HTTP links use only explicit soft wraps. Pending
+lookups are discarded if the buffer, text, cell positions, or wrapping changes.
 
 Method/capability advertisements belong to each terminal socket, never another
 terminal or runtime. Reattachment negotiates again; browser reconnect and
@@ -106,6 +125,13 @@ history requests and preserves the already captured selection.
 Input waits for attachment readiness and revalidates the attachment, session,
 and routing lease. It is never replayed into a detached or replaced terminal.
 Disconnect rejects pending endpoint requests and invalidates clipboard ownership.
+
+Mermaid file previews and Markdown fences share a lazy renderer and independent
+zoomable viewports. Source wrappers and leading metadata/comments are removed
+before diagram-type detection; source views retain the original file. Layout and
+theme remain controlled by Studio. Image previews use inert image elements;
+workspace SVG endpoints also send a sandbox CSP for direct navigation, blocking
+scripts and external resources. SVG source is never inserted into Studio's DOM.
 
 ## Browser navigation and creation
 
@@ -213,6 +239,22 @@ The terminal stays mounted across Inspector views and geometry changes. Resource
 layout/preferences are separate from content caches. See
 [Workspace Inspector](../FEATURES.md#workspace-inspector) for controls and
 [History synchronization](./HISTORY.md) for session projection contracts.
+
+## Filesystem browsing
+
+`file.list` stays checkout-relative by default, including realpath checks for
+symlink escapes. Each filesystem listing explicitly sends `scope: "filesystem"`
+and an absolute host directory; returned entries use absolute paths and the reply
+confirms its scope. This mode is local to the open explorer and is never persisted
+as a browser-wide permission or shared with another checkout/connection. Directory
+responses from a retired view cannot replace its successor. Search filters only
+loaded entries and never recursively scans the filesystem.
+
+Absolute preview resources use `scope=filesystem` on download URLs. Relative
+Markdown links and images resolve beside their absolute source document. Upload
+and delete remain checkout-scoped; filesystem mode exposes browsing, previews,
+copying paths, and downloads. Explorer resource caches stay separate from the lazy
+UI so opening a terminal does not load the file-search matcher or browser controls.
 
 ## SSH transport
 
