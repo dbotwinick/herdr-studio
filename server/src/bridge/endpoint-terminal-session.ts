@@ -14,6 +14,12 @@ const SURFACE_FIT_MAX_ATTEMPTS = 3;
 // How long a misfitting frame waits for the settled replacement.
 const FIT_DEFER_MS = 500;
 
+type ScrollDispatch = {
+  offset: number;
+  startOffset: number;
+  observed: boolean;
+};
+
 /**
  * Terminal stream over the stable endpoint protocol (Herdr >= 0.9.0).
  *
@@ -39,6 +45,9 @@ export class EndpointTerminalSession extends EventEmitter {
   // not replace movement already queued by newer wheel events.
   private scrollTarget: number | null = null;
   private scrollInFlight = false;
+  // One dispatch waits for both its RPC and viewport feedback. Further wheel
+  // events coalesce into scrollTarget without blocking the shared command lane.
+  private scrollDispatched: ScrollDispatch | null = null;
   private closed = false;
   private seq = 0;
   private deferredFrame: {
@@ -108,7 +117,8 @@ export class EndpointTerminalSession extends EventEmitter {
       }
       this.paneId = paneId;
       // Focus scopes this shell's surface to the pane's tab; per-client
-      // focus in Herdr 0.9.0 keeps this from moving other clients.
+      // tab navigation leaves other clients on their own tabs. Same-tab
+      // pane focus remains shared and determines which pane has a cursor.
       await this.enqueueCommand(() =>
         this.client.callEndpoint("pane.focus", { pane_id: paneId }),
       );
@@ -160,6 +170,15 @@ export class EndpointTerminalSession extends EventEmitter {
     const task = this.commandChain.then(bounded, bounded);
     this.commandChain = task.catch(() => undefined);
     return task;
+  }
+
+  /** Select the cursor owner using this shell's scoped endpoint lane. */
+  focus(isCurrent: () => boolean): Promise<void> {
+    return this.enqueueCommand(async () => {
+      if (!isCurrent()) return;
+      if (!this.paneId) throw new Error("Endpoint terminal is not ready");
+      await this.client.callEndpoint("pane.focus", { pane_id: this.paneId });
+    });
   }
 
   /** Reuse the attached shell/clipboard lane; never refocus it for creation. */
@@ -239,7 +258,12 @@ export class EndpointTerminalSession extends EventEmitter {
     if (this.closed || !this.paneId) return; // connect() replays after lookup
     const pane = surface.panes.find((p) => p.paneId === this.paneId);
     if (!pane?.mouseReporting) this.pressedMouseButtons.clear();
-    if (!pane) return;
+    if (!pane) {
+      this.lastScroll = null;
+      this.scrollTarget = null;
+      this.scrollDispatched = null;
+      return;
+    }
     this.fitSurface(surface, pane);
     const previousMaxOffset = this.lastScroll?.maxOffsetFromBottom;
     this.lastScroll = pane.scroll
@@ -250,23 +274,39 @@ export class EndpointTerminalSession extends EventEmitter {
       : null;
     if (!this.lastScroll) {
       this.scrollTarget = null;
+      this.scrollDispatched = null;
     } else if (this.scrollTarget !== null) {
-      // Output can grow history while scrolling. Keep the intended absolute
-      // row stationary, except at the bottom where following output is wanted.
-      const growth =
-        previousMaxOffset === undefined
-          ? 0
-          : this.lastScroll.maxOffsetFromBottom - previousMaxOffset;
-      if (this.scrollTarget > 0) this.scrollTarget += growth;
+      const sent = this.scrollDispatched;
+      // Rebase only outstanding movement, not a completed dispatch awaiting
+      // its frame. Otherwise growth creates a hidden target never sent by RPC.
+      if (
+        !sent ||
+        (this.scrollInFlight && !sent.observed) ||
+        this.scrollTarget !== sent.offset
+      ) {
+        const growth =
+          previousMaxOffset === undefined
+            ? 0
+            : this.lastScroll.maxOffsetFromBottom - previousMaxOffset;
+        if (this.scrollTarget > 0) this.scrollTarget += growth;
+      }
       this.scrollTarget = Math.max(
         0,
         Math.min(this.lastScroll.maxOffsetFromBottom, this.scrollTarget),
       );
+      if (sent)
+        sent.offset = Math.min(
+          sent.offset,
+          this.lastScroll.maxOffsetFromBottom,
+        );
       if (
-        !this.scrollInFlight &&
-        this.lastScroll.offsetFromBottom === this.scrollTarget
-      )
-        this.scrollTarget = null;
+        sent &&
+        (this.lastScroll.offsetFromBottom === sent.offset ||
+          this.lastScroll.offsetFromBottom !== sent.startOffset)
+      ) {
+        sent.observed = true;
+      }
+      this.settleScroll();
     }
 
     const cropped = cropFrame(surface.frame, pane.innerRect);
@@ -281,6 +321,16 @@ export class EndpointTerminalSession extends EventEmitter {
         height: cropped.height,
         full: true,
         mouseReporting,
+        history: pane.scroll
+          ? {
+              revision: pane.contentRevision,
+              top:
+                pane.scroll.maxOffsetFromBottom - pane.scroll.offsetFromBottom,
+              total: pane.scroll.maxOffsetFromBottom + pane.scroll.viewportRows,
+              cols: pane.innerRect.width,
+              rows: pane.innerRect.height,
+            }
+          : undefined,
         bytes,
         frame: cropped,
       });
@@ -441,7 +491,10 @@ export class EndpointTerminalSession extends EventEmitter {
   input(data: Buffer) {
     if (!this.paneId || this.closed) return;
     // Typing or application input supersedes a queued history gesture.
-    if (data.length > 0) this.scrollTarget = null;
+    if (data.length > 0) {
+      this.scrollTarget = null;
+      this.scrollDispatched = null;
+    }
     const pane = this.latestSurface()?.panes.find(
       (p) => p.paneId === this.paneId,
     );
@@ -538,38 +591,75 @@ export class EndpointTerminalSession extends EventEmitter {
     this.flushScroll();
   }
 
+  private settleScroll() {
+    const sent = this.scrollDispatched;
+    if (this.scrollInFlight || !sent?.observed) return;
+    this.scrollDispatched = null;
+    if (this.scrollTarget === sent.offset) this.scrollTarget = null;
+    this.flushScroll();
+  }
+
   private flushScroll() {
-    if (this.closed || this.scrollInFlight || this.scrollTarget === null)
+    if (
+      this.closed ||
+      this.scrollInFlight ||
+      this.scrollDispatched ||
+      this.scrollTarget === null
+    )
       return;
     this.scrollInFlight = true;
+    let sent: ScrollDispatch | null = null;
     this.enqueueCommand(async () => {
       const offset = this.scrollTarget;
-      if (offset === null || !this.paneId) return null;
-      await this.client.callEndpoint("pane.scroll", {
+      if (offset === null || !this.paneId || !this.lastScroll) return;
+      if (offset === this.lastScroll.offsetFromBottom) {
+        // Coalescing canceled the unsent movement; no RPC or repaint is needed.
+        this.scrollTarget = null;
+        return;
+      }
+      sent = {
+        offset,
+        startOffset: this.lastScroll.offsetFromBottom,
+        observed: false,
+      };
+      this.scrollDispatched = sent;
+      const surfaceAtDispatch = this.latestSurface();
+      const result = await this.client.callEndpoint("pane.scroll", {
         pane_id: this.paneId,
         offset_from_bottom: offset,
       });
-      return offset;
+      if (this.scrollDispatched !== sent) return;
+      // Herdr 0.9.0 returns PaneInfo, including the applied (possibly clamped)
+      // offset. Its revision is NOT a surface revision. Older/opaque results
+      // still reconcile through surfaces; a confirmed no-op needs no repaint.
+      const scroll = scrollResult(result, this.paneId);
+      if (scroll && !sent.observed) {
+        if (this.scrollTarget === sent.offset)
+          this.scrollTarget = scroll.offset;
+        else if (
+          this.scrollTarget !== null &&
+          this.latestSurface() === surfaceAtDispatch
+        )
+          this.scrollTarget = Math.min(this.scrollTarget, scroll.maxOffset);
+        sent.offset = scroll.offset;
+        if (scroll.offset === sent.startOffset) sent.observed = true;
+      }
     })
-      .then((sent) => {
+      .then(() => {
         this.scrollInFlight = false;
-        if (this.closed || this.scrollTarget === null) return;
-        if (this.scrollTarget !== sent) {
-          // Coalesce the burst into its newest target rather than playing every
-          // intermediate position back after the wheel has stopped.
-          this.flushScroll();
-        } else if (this.lastScroll?.offsetFromBottom === sent) {
-          this.scrollTarget = null;
-        }
-        // An RPC reply can precede its surface. Retain the target until that
-        // surface confirms it, so another wheel event cannot start from stale data.
+        this.settleScroll();
+        this.flushScroll();
       })
       .catch((e) => {
         this.scrollInFlight = false;
-        this.scrollTarget = null;
+        if (this.scrollDispatched === sent) {
+          this.scrollTarget = null;
+          this.scrollDispatched = null;
+        }
         this.logger.debug("endpoint pane.scroll failed", {
           error: e instanceof Error ? e.message : String(e),
         });
+        this.flushScroll();
       });
   }
 
@@ -577,11 +667,52 @@ export class EndpointTerminalSession extends EventEmitter {
     if (this.closed) return;
     this.closed = true;
     this.scrollTarget = null;
+    this.scrollDispatched = null;
     this.pressedMouseButtons.clear();
     if (this.escFlushTimer) clearTimeout(this.escFlushTimer);
     this.clearDeferredFrame();
     this.client.close();
   }
+}
+
+function scrollResult(result: unknown, paneId: string) {
+  if (
+    !result ||
+    typeof result !== "object" ||
+    !("type" in result) ||
+    result.type !== "pane_info" ||
+    !("pane" in result)
+  )
+    return null;
+  const pane = result.pane;
+  if (
+    !pane ||
+    typeof pane !== "object" ||
+    !("pane_id" in pane) ||
+    pane.pane_id !== paneId ||
+    !("scroll" in pane)
+  )
+    return null;
+  const scroll = pane.scroll;
+  if (
+    !scroll ||
+    typeof scroll !== "object" ||
+    !("offset_from_bottom" in scroll) ||
+    !("max_offset_from_bottom" in scroll)
+  )
+    return null;
+  const offset = scroll.offset_from_bottom;
+  const maxOffset = scroll.max_offset_from_bottom;
+  if (
+    typeof offset !== "number" ||
+    typeof maxOffset !== "number" ||
+    !Number.isSafeInteger(offset) ||
+    !Number.isSafeInteger(maxOffset) ||
+    offset < 0 ||
+    maxOffset < offset
+  )
+    return null;
+  return { offset, maxOffset };
 }
 
 /** Crop one pane's content rect out of the tab surface. */

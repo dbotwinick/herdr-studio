@@ -4,6 +4,15 @@
 
 - Keep fast terminal wheel scrolling from jumping backward or replaying stale
   positions when terminal frames arrive late.
+- Keep the cursor on the selected terminal pane when switching splits, and preserve
+  cursor updates and hide/show transitions across incremental repaints.
+- Keep the Actions menu on screen and terminal selection aligned with the mouse
+  when changing the interface text size.
+- Scroll terminal history while drag-selecting beyond a pane edge, preserving
+  offscreen selected text when copying.
+- Add attention-first agent ordering and collapsible status, workspace, and agent
+  type groups in the separate Agents panel, plus named tabs in both nested and
+  separate agent rows.
 
 ## 0.6.2 - 2026-09-11
 
