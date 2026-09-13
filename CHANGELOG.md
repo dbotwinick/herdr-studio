@@ -6,6 +6,8 @@
   cursor updates and hide/show transitions across incremental repaints.
 - Keep the Actions menu on screen and terminal selection aligned with the mouse
   when changing the interface text size.
+- Scroll terminal history while drag-selecting beyond a pane edge, preserving
+  offscreen selected text when copying.
 
 ## 0.6.2 - 2026-09-11
 

@@ -579,6 +579,11 @@ export function createTerminalBridge(args: {
               ...(typeof t.mouseReporting === "boolean"
                 ? { mouse_reporting: t.mouseReporting }
                 : {}),
+              ...(t.history &&
+              width === t.history.cols &&
+              height === t.history.rows
+                ? { history: t.history }
+                : {}),
               bytes: Buffer.from(bytes).toString("base64"),
             },
           });

@@ -266,6 +266,16 @@ export class EndpointTerminalSession extends EventEmitter {
         height: cropped.height,
         full: true,
         mouseReporting,
+        history: pane.scroll
+          ? {
+              revision: pane.contentRevision,
+              top:
+                pane.scroll.maxOffsetFromBottom - pane.scroll.offsetFromBottom,
+              total: pane.scroll.maxOffsetFromBottom + pane.scroll.viewportRows,
+              cols: pane.innerRect.width,
+              rows: pane.innerRect.height,
+            }
+          : undefined,
         bytes,
         frame: cropped,
       });

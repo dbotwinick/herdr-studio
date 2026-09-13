@@ -82,6 +82,13 @@ receive semantic mouse events; ordinary wheels and explicit history shortcuts
 use history scrolling. During browser selection, presentation retains only the
 latest full repaint and resumes when selection clears. Pane/session changes
 retire pending presentation; selection replay cannot send application input.
+Endpoint frames include content revision and absolute viewport rows when the
+viewer receives the complete pane crop. Edge-drag selection requests overlapping
+history viewports one at a time, admitting only matching-revision repaints while
+retaining immutable copies of visited cells. Copy uses the complete absolute
+range, not just its visible highlight. Release, lost mouse-up, blur, resize, and
+attachment reset stop drag scrolling. Changed content or geometry stops further
+history requests and preserves the already captured selection.
 
 Input waits for attachment readiness and revalidates the attachment, session,
 and routing lease. It is never replayed into a detached or replaced terminal.
