@@ -4,6 +4,15 @@
 
 - Open relative Markdown document links in the current preview, including heading
   anchors, without opening another Studio window.
+- Keep the cursor on the selected terminal pane when switching splits, and preserve
+  cursor updates and hide/show transitions across incremental repaints.
+- Keep the Actions menu on screen and terminal selection aligned with the mouse
+  when changing the interface text size.
+- Scroll terminal history while drag-selecting beyond a pane edge, preserving
+  offscreen selected text when copying.
+- Add attention-first agent ordering and collapsible status, workspace, and agent
+  type groups in the separate Agents panel, plus named tabs in both nested and
+  separate agent rows.
 
 ## 0.6.2 - 2026-09-11
 

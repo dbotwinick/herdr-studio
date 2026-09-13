@@ -1,5 +1,6 @@
 import type { ConnectionClient } from "./api";
 import { connectionHttpPath } from "./connectionHttp";
+import { relativePathWithinCheckout } from "./workspaceResource";
 
 type FileUrlClient = Pick<
   ConnectionClient,
@@ -27,6 +28,12 @@ export function workspaceFileUrl(
     url.searchParams.set("resource_revision", String(options.revision));
   }
   return `${url.pathname}${url.search}`;
+}
+
+export function workspaceMarkdownDocumentPath(path: string, root: string) {
+  // In-workspace absolute previews follow workspace-root link semantics. Keep
+  // external preview bases absolute so their relative links still open siblings.
+  return relativePathWithinCheckout(root, path) ?? path;
 }
 
 /**

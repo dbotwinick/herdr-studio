@@ -3,6 +3,7 @@ import {
   resolveWorkspaceMarkdownImagePath,
   resolveWorkspaceMarkdownImageUrl,
   workspaceFileUrl,
+  workspaceMarkdownDocumentPath,
 } from "./workspaceFileUrl";
 
 const client = {
@@ -67,6 +68,44 @@ describe("workspace file URLs", () => {
 import { resolveWorkspaceMarkdownLink } from "./workspaceFileUrl";
 
 describe("Markdown document links", () => {
+  test("normalizes absolute in-workspace bases before resolving links", () => {
+    for (const path of ["README.md", "/repo/README.md"]) {
+      const base = workspaceMarkdownDocumentPath(path, "/repo");
+      expect(resolveWorkspaceMarkdownLink("../etc/passwd", base)).toBeNull();
+      expect(resolveWorkspaceMarkdownLink("guide.md#section", base)).toEqual({
+        path: "guide.md",
+        fragment: "section",
+      });
+      expect(resolveWorkspaceMarkdownLink("/docs/a.md#root", base)).toEqual({
+        path: "docs/a.md",
+        fragment: "root",
+      });
+      expect(resolveWorkspaceMarkdownLink("#intro", base)).toEqual({
+        path: "README.md",
+        fragment: "intro",
+      });
+    }
+    expect(workspaceMarkdownDocumentPath("/repo/docs/a.md", "/repo/")).toBe(
+      "docs/a.md",
+    );
+    expect(workspaceMarkdownDocumentPath("/docs/a.md", "/")).toBe("docs/a.md");
+  });
+
+  test("preserves relative siblings for intentionally external previews", () => {
+    for (const path of ["/outside/README.md", "/repo-other/README.md"]) {
+      const base = workspaceMarkdownDocumentPath(path, "/repo");
+      expect(base).toBe(path);
+      expect(resolveWorkspaceMarkdownLink("./alias.md#section", base)).toEqual({
+        path: path.replace("README.md", "alias.md"),
+        fragment: "section",
+      });
+      expect(resolveWorkspaceMarkdownLink("/README.md", base)).toEqual({
+        path: "README.md",
+        fragment: "",
+      });
+    }
+  });
+
   test("resolves siblings, parent directories, and workspace-root links", () => {
     expect(
       resolveWorkspaceMarkdownLink("./setup.md", "docs/guide/README.md"),

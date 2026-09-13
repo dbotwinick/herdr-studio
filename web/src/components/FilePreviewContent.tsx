@@ -24,6 +24,7 @@ import type { FileExplorerEntry, FilePreview } from "../types";
 import { useConnectionClient } from "../useConnectionClient";
 import {
   resolveWorkspaceMarkdownImageUrl,
+  workspaceMarkdownDocumentPath,
   workspaceFileUrl,
 } from "../workspaceFileUrl";
 import { MarkdownPreview, type MarkdownSelectionTarget } from "./markdown";
@@ -47,6 +48,7 @@ export type ActiveFilePreviewSelection = {
   preview: FilePreview | null;
   loading: boolean;
   error: string | null;
+  fragment?: string;
 };
 
 export type FilePreviewSelectionMeta = {
@@ -162,6 +164,7 @@ export function FilePreviewContent({
   preview,
   loading,
   error,
+  fragment,
   changesContent,
   changesKey,
   annotations = [],
@@ -175,12 +178,13 @@ export function FilePreviewContent({
   preview: FilePreview | null;
   loading: boolean;
   error: string | null;
+  fragment?: string;
   changesContent?: ReactNode;
   changesKey?: string;
   backAction?: { label: string; onClick: () => void };
   annotations?: readonly ReviewAnnotation[];
   onOpenChanges?: () => void;
-  onOpenFile?: (path: string) => void;
+  onOpenFile?: (path: string, fragment?: string) => void;
   onCreateAnnotation?: (annotation: NewReviewAnnotation) => void;
   onReanchorAnnotations?: (path: string, text: string) => void;
 }) {
@@ -198,10 +202,6 @@ export function FilePreviewContent({
     useState<PendingFileAnnotation | null>(null);
   const [markdownSelection, setMarkdownSelection] =
     useState<MarkdownSelectionTarget | null>(null);
-  const [documentDestination, setDocumentDestination] = useState<{
-    path: string;
-    fragment: string;
-  } | null>(null);
   const theme = useDocumentTheme();
   const previewText = preview?.text ?? null;
   const previewPath = preview?.path ?? "";
@@ -538,17 +538,14 @@ export function FilePreviewContent({
             <MarkdownPreview
               text={previewText}
               imageUrlResolver={markdownImageUrlResolver}
-              documentPath={onOpenFile ? previewPath : undefined}
-              linkUrlResolver={markdownLinkUrlResolver}
-              fragment={
-                documentDestination?.path === previewPath
-                  ? documentDestination.fragment
+              documentPath={
+                onOpenFile && preview
+                  ? workspaceMarkdownDocumentPath(previewPath, preview.root)
                   : undefined
               }
-              onOpenDocument={(path, fragment) => {
-                setDocumentDestination({ path, fragment });
-                onOpenFile?.(path);
-              }}
+              linkUrlResolver={markdownLinkUrlResolver}
+              fragment={fragment}
+              onOpenDocument={onOpenFile}
               onSelectionChange={
                 onCreateAnnotation ? setMarkdownSelection : undefined
               }
