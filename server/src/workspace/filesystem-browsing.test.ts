@@ -3,6 +3,7 @@ import {
   mkdir,
   mkdtemp,
   readFile,
+  realpath,
   rm,
   symlink,
   writeFile,
@@ -18,7 +19,10 @@ import { listRemoteFiles } from "./remote-files";
 async function fixture(
   run: (root: string, workspace: string, refs: string) => Promise<void>,
 ) {
-  const root = await mkdtemp(join(tmpdir(), "herdr-filesystem-"));
+  // Canonicalize: handlers resolve real paths (macOS /var -> /private/var).
+  const root = await realpath(
+    await mkdtemp(join(tmpdir(), "herdr-filesystem-")),
+  );
   try {
     const workspace = join(root, "workspace");
     const refs = join(root, "reference materials");
