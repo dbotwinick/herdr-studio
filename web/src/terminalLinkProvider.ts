@@ -6,6 +6,7 @@ import {
 } from "./terminalLinks";
 import {
   findTerminalFileLinkCandidates,
+  MAX_CANDIDATES_PER_LINE,
   type TerminalFileLinkCandidate,
   type TextRange,
 } from "./terminalFileLinks";
@@ -266,12 +267,24 @@ export function registerTerminalLinkProvider(
         }
         callback(links.length ? links : undefined);
       };
-      if (!pending.length || !resolvePaths) finish();
-      else
-        void resolvePaths(pending.map((candidate) => candidate.path)).then(
-          finish,
-          () => finish(),
-        );
+      if (!pending.length || !resolvePaths) {
+        finish();
+        return;
+      }
+      const resolveAll = async () => {
+        const paths = [...new Set(pending.map((candidate) => candidate.path))];
+        const resolved = new Map<string, string>();
+        // Contexts can exceed the per-line cache and server batch limit.
+        for (let i = 0; i < paths.length; i += MAX_CANDIDATES_PER_LINE) {
+          if (disposed) break;
+          const batch = await resolvePaths(
+            paths.slice(i, i + MAX_CANDIDATES_PER_LINE),
+          );
+          for (const [candidate, path] of batch) resolved.set(candidate, path);
+        }
+        return resolved;
+      };
+      void resolveAll().then(finish, () => finish());
     },
   });
   return {

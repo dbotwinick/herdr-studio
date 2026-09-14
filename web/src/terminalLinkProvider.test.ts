@@ -1,6 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import type { ILink, ILinkProvider, Terminal } from "@xterm/xterm";
 import { registerTerminalLinkProvider } from "./terminalLinkProvider";
+import { TerminalFileResolutionCache } from "./terminalFileLinks";
+import {
+  getShortcutSnapshot,
+  selectShortcutPreset,
+} from "./shortcutPreferences";
 
 function fixture(rows: string[], cols: number, wrapped: number[] = []) {
   let provider!: ILinkProvider;
@@ -27,12 +32,16 @@ function fixture(rows: string[], cols: number, wrapped: number[] = []) {
   const requests: string[][] = [];
   const previewed: string[] = [];
   const existing = new Set<string>();
-  const resolve = async (paths: string[]) => {
-    requests.push(paths);
-    return new Map(
-      paths.filter((path) => existing.has(path)).map((path) => [path, path]),
-    );
-  };
+  const cache = new TerminalFileResolutionCache(
+    async (_scope, _workspace, paths) => {
+      requests.push(paths);
+      return paths
+        .filter((path) => existing.has(path))
+        .map((path) => ({ candidate: path, path }));
+    },
+  );
+  const resolve = (paths: string[]) =>
+    cache.resolve("test", "workspace", paths);
   const links = (row: number) =>
     new Promise<ILink[]>((done) =>
       provider.provideLinks(row, (found) => done(found ?? [])),
@@ -127,37 +136,112 @@ describe("terminal link provider", () => {
     ]);
   });
 
-  test("joins the indented Codex example and activates the complete file", async () => {
-    const path =
-      ".dev/vllm-v41-compat/evidence/restore-instrumented-native3/README.md";
-    const first =
-      "  Restore still needs a fix. Full diagnosis and traces (.dev/vllm-v41-compat/evidence/restore-instrumented-native3/";
-    const f = fixture([first, "  README.md)."], first.length + 3);
-    f.existing.add(path);
+  test.each(["standalone", "joined"])(
+    "resolves all candidate batches and prefers the complete %s path",
+    async (kind) => {
+      const rows = Array.from({ length: 17 }, (_, i) => `docs/file${i}.md`);
+      const f = fixture(rows, 40);
+      for (const path of rows) f.existing.add(path);
+      const joined = rows[7]! + rows[8]!;
+      if (kind === "joined") f.existing.add(joined);
+      registerTerminalLinkProvider(
+        f.term,
+        () => {},
+        f.resolve,
+        () => true,
+      );
+      expect((await f.links(9)).map((link) => link.text)).toEqual([
+        kind === "joined" ? joined : rows[8]!,
+      ]);
+      expect(f.requests.map((paths) => paths.length)).toEqual([32, 32, 17]);
+      expect(f.requests.flat()).toContain(rows[8]!);
+    },
+  );
+
+  test("deduplicates repeated path candidates before resolution", async () => {
+    const f = fixture(Array(17).fill("docs/file.md"), 40);
+    f.existing.add("docs/file.md");
+    const batches: string[][] = [];
     registerTerminalLinkProvider(
       f.term,
-      (value) => f.previewed.push(value),
-      f.resolve,
+      () => {},
+      (paths) => {
+        batches.push(paths);
+        return f.resolve(paths);
+      },
       () => true,
     );
-    for (const row of [1, 2]) {
-      const links = await f.links(row);
-      expect(links.map((link) => link.text)).toEqual([path]);
-      expect(links[0]!.range).toEqual({
-        start: { x: first.indexOf(".dev/") + 1, y: 1 },
-        end: { x: 11, y: 2 },
-      });
-      const event = {
-        preventDefault() {},
-        ctrlKey: true,
-        metaKey: false,
-        shiftKey: false,
-        altKey: false,
-      } as MouseEvent;
-      links[0]!.activate(event, links[0]!.text);
-    }
-    expect(f.previewed).toEqual([path, path]);
+    expect((await f.links(9)).map((link) => link.text)).toEqual([
+      "docs/file.md",
+    ]);
+    expect(batches.map((paths) => paths.length)).toEqual([17]);
   });
+
+  test.each(["buffer changes", "lookup fails"])(
+    "discards batch results when the last batch %s",
+    async (reason) => {
+      const rows = Array.from({ length: 17 }, (_, i) => `docs/file${i}.md`);
+      const f = fixture(rows, 40);
+      f.existing.add(rows.join(""));
+      f.existing.add(rows[8]!);
+      let calls = 0;
+      registerTerminalLinkProvider(
+        f.term,
+        () => {},
+        async (paths) => {
+          if (++calls === 3) {
+            if (reason === "lookup fails") throw new Error("resolution failed");
+            f.lines[8]!.text = "docs/replaced.md";
+          }
+          return f.resolve(paths);
+        },
+        () => true,
+      );
+      expect(await f.links(9)).toEqual([]);
+      expect(calls).toBe(3);
+    },
+  );
+
+  test.each(["mac", "windows", "linux"])(
+    "joins the indented Codex example and activates the complete file (%s)",
+    async (preset) => {
+      const path =
+        ".dev/vllm-v41-compat/evidence/restore-instrumented-native3/README.md";
+      const first =
+        "  Restore still needs a fix. Full diagnosis and traces (.dev/vllm-v41-compat/evidence/restore-instrumented-native3/";
+      const f = fixture([first, "  README.md)."], first.length + 3);
+      f.existing.add(path);
+      registerTerminalLinkProvider(
+        f.term,
+        (value) => f.previewed.push(value),
+        f.resolve,
+        () => true,
+      );
+      for (const row of [1, 2]) {
+        const links = await f.links(row);
+        expect(links.map((link) => link.text)).toEqual([path]);
+        expect(links[0]!.range).toEqual({
+          start: { x: first.indexOf(".dev/") + 1, y: 1 },
+          end: { x: 11, y: 2 },
+        });
+        const event = {
+          preventDefault() {},
+          ctrlKey: preset !== "mac",
+          metaKey: preset === "mac",
+          shiftKey: false,
+          altKey: false,
+        } as MouseEvent;
+        const previous = getShortcutSnapshot().preferences.active;
+        try {
+          selectShortcutPreset(preset);
+          links[0]!.activate(event, links[0]!.text);
+        } finally {
+          selectShortcutPreset(previous);
+        }
+      }
+      expect(f.previewed).toEqual([path, path]);
+    },
+  );
 
   test("finds a continued path even with adjacent prose on both sides", async () => {
     const f = fixture(
